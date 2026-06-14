@@ -453,6 +453,27 @@ export default function WorkHoursTracker() {
 
   const todayHoliday = getHolidayName(now.getTime());
 
+  const handleSwipeStart = (e) => {
+    e.currentTarget._tx = e.touches[0].clientX;
+    e.currentTarget._ty = e.touches[0].clientY;
+    e.currentTarget._moved = false;
+  };
+  const handleSwipeMove = (e) => {
+    const dx = e.touches[0].clientX - (e.currentTarget._tx || 0);
+    const dy = e.touches[0].clientY - (e.currentTarget._ty || 0);
+    if (!e.currentTarget._moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+      e.currentTarget._moved = true;
+    }
+  };
+  const handleSwipeEnd = (e) => {
+    if (!e.currentTarget._moved) return;
+    const dx = e.changedTouches[0].clientX - (e.currentTarget._tx || 0);
+    if (Math.abs(dx) > 50) {
+      setView(dx < 0 ? "summary" : "clock");
+    }
+    e.currentTarget._moved = false;
+  };
+
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center"}}>
 
@@ -495,11 +516,7 @@ export default function WorkHoursTracker() {
         </div>
       </div>
 
-      <div style={{width:"100%",overflow:"hidden",flex:1}}
-        onTouchStart={e=>{e.currentTarget._tx=e.touches[0].clientX;e.currentTarget._ty=e.touches[0].clientY;e.currentTarget._moved=false;}}
-        onTouchMove={e=>{const dx=e.touches[0].clientX-(e.currentTarget._tx||0);const dy=e.touches[0].clientY-(e.currentTarget._ty||0);if(!e.currentTarget._moved&&Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>8){e.currentTarget._moved=true;}}}
-        onTouchEnd={e=>{if(!e.currentTarget._moved)return;const dx=e.changedTouches[0].clientX-(e.currentTarget._tx||0);if(Math.abs(dx)>50){const next=dx<0?"summary":"clock";setView(next);}e.currentTarget._moved=false;}}
-      >
+      <div style={{width:"100%",overflow:"hidden",flex:1}} onTouchStart={handleSwipeStart} onTouchMove={handleSwipeMove} onTouchEnd={handleSwipeEnd}>
         <div style={{display:"flex",width:"200%",transform:view==="clock"?"translateX(0)":"translateX(-50%)",transition:"transform 0.35s cubic-bezier(0.4,0,0.2,1)"}}>
           <div style={{width:"50%",flexShrink:0}}>
             <div style={{maxWidth:480,margin:"0 auto",padding:"22px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:20}}>
