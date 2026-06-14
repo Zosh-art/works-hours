@@ -195,9 +195,16 @@ function formatTime(ms) {
   return `${h}:${m.toString().padStart(2,"0")}`;
 }
 function formatMoney(n) {
-  const parts = n.toFixed(2).split(".");
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return "₪" + parts.join(".");
+  const str = n.toFixed(2);
+  const dot = str.indexOf(".");
+  const intPart = str.slice(0, dot);
+  const decPart = str.slice(dot);
+  let result = "";
+  for (let i = 0; i < intPart.length; i++) {
+    if (i > 0 && (intPart.length - i) % 3 === 0) result += ",";
+    result += intPart[i];
+  }
+  return "₪" + result + decPart;
 }
 function formatClock(d) { return d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); }
 function getDayKey(d) { return `${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
