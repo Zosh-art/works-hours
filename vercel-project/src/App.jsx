@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 
 const STORAGE_KEY = "work_hours_data_v3";
 const WAGE_KEY = "hourly_rate_v1";
+const THEME_KEY = "app_theme_v1";
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
   { label: "52.19", value: 52.19 },
@@ -54,6 +55,23 @@ const JEWISH_HOLIDAYS_RAW = [
   // Shavuot 5787: May 11-13, 2027
   { name: "שבועות", eve: [2027,5,11], endDay: [2027,5,13] },
 ];
+
+const DARK = {
+  bg:"#0F1117",card:"#1A1D2E",cardB:"#252840",cardAlt:"#13151F",
+  inp:"#252840",inpB:"#334155",text:"#E2E8F0",textS:"#F1F5F9",
+  textM:"#94A3B8",textF:"#64748B",textVF:"#475569",
+  todayBg:"#1E2145",todayB:"#6366F1",nav:"#1E2130",exp:"#161827",
+  evBg:"#1A1420",evB:"#2D1F40",modal:"#1A1D2E",modalB:"#2D2F4A",
+  pre:"#13151F",cf:"#13151F",cr:"#1E2130",ct:"#334155",ch:"#E2E8F0",cm:"#94A3B8"
+};
+const LIGHT = {
+  bg:"#F1F5F9",card:"#FFFFFF",cardB:"#E2E8F0",cardAlt:"#F8FAFC",
+  inp:"#F1F5F9",inpB:"#CBD5E1",text:"#334155",textS:"#0F172A",
+  textM:"#64748B",textF:"#94A3B8",textVF:"#CBD5E1",
+  todayBg:"#EEF2FF",todayB:"#6366F1",nav:"#E2E8F0",exp:"#F8FAFC",
+  evBg:"#F5F3FF",evB:"#C4B5FD",modal:"#FFFFFF",modalB:"#E2E8F0",
+  pre:"#F1F5F9",cf:"#F8FAFC",cr:"#E2E8F0",ct:"#CBD5E1",ch:"#1E293B",cm:"#64748B"
+};
 
 // ── Sunset calculation (NOAA, Israel) ────────────────────────────────────────
 function getSunsetIL(year, month, day) {
@@ -194,7 +212,7 @@ function calcEarnings(sessions, activeStart=null, hourlyRate=52.19) {
 }
 
 // ── Manual Entry Modal ────────────────────────────────────────────────────────
-function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourlyRate=52.19 }) {
+function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourlyRate=52.19, T=DARK }) {
   const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth()+1).padStart(2,"0")}-${String(targetDate.getDate()).padStart(2,"0")}`;
   const [sessions, setSessions] = useState(
     existingSessions?.length
@@ -222,28 +240,27 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
     onSave(parsed);
   }
 
-  const BG = "#0F1117";
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}>
-      <div style={{ background:"#1A1D2E", borderRadius:20, padding:24, width:"100%", maxWidth:380, border:"1px solid #2D2F4A" }}>
+      <div style={{ background:T.modal, borderRadius:20, padding:24, width:"100%", maxWidth:380, border:`1px solid ${T.modalB}` }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-          <span style={{ fontWeight:700, fontSize:17, color:"#F1F5F9" }}>
+          <span style={{ fontWeight:700, fontSize:17, color:T.textS }}>
             הזנה ידנית — {targetDate.getDate()} {MONTH_NAMES[targetDate.getMonth()]}
           </span>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748B", fontSize:22, cursor:"pointer" }}>✕</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.textF, fontSize:22, cursor:"pointer" }}>✕</button>
         </div>
 
         {sessions.map((s, i) => (
           <div key={i} style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>כניסה</div>
+              <div style={{ fontSize:11, color:T.textF, marginBottom:4 }}>כניסה</div>
               <input type="time" value={s.startStr} onChange={e => setSessions(prev => prev.map((x,j) => j===i ? {...x, startStr:e.target.value} : x))}
-                style={{ width:"100%", background:"#252840", border:"1px solid #334155", borderRadius:8, padding:"10px 12px", color:"#F1F5F9", fontSize:16, outline:"none" }} />
+                style={{ width:"100%", background:T.inp, border:`1px solid ${T.inpB}`, borderRadius:8, padding:"10px 12px", color:T.textS, fontSize:16, outline:"none" }} />
             </div>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>יציאה</div>
+              <div style={{ fontSize:11, color:T.textF, marginBottom:4 }}>יציאה</div>
               <input type="time" value={s.endStr} onChange={e => setSessions(prev => prev.map((x,j) => j===i ? {...x, endStr:e.target.value} : x))}
-                style={{ width:"100%", background:"#252840", border:"1px solid #334155", borderRadius:8, padding:"10px 12px", color:"#F1F5F9", fontSize:16, outline:"none" }} />
+                style={{ width:"100%", background:T.inp, border:`1px solid ${T.inpB}`, borderRadius:8, padding:"10px 12px", color:T.textS, fontSize:16, outline:"none" }} />
             </div>
             {sessions.length > 1 && (
               <button onClick={() => setSessions(prev => prev.filter((_,j) => j!==i))}
@@ -253,7 +270,7 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
         ))}
 
         <button onClick={() => setSessions(prev => [...prev, { startStr:"09:00", endStr:"17:00" }])}
-          style={{ width:"100%", padding:"9px", background:"#252840", border:"1px dashed #334155", borderRadius:10, color:"#94A3B8", cursor:"pointer", fontSize:14, marginBottom:16 }}>
+          style={{ width:"100%", padding:"9px", background:T.inp, border:`1px dashed ${T.inpB}`, borderRadius:10, color:T.textM, cursor:"pointer", fontSize:14, marginBottom:16 }}>
           + הוסף סשן נוסף
         </button>
 
@@ -263,15 +280,15 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
           if (!parsed.length) return null;
           const earn = calcEarnings(parsed, null, hourlyRate);
           return (
-            <div style={{ background:"#13151F", borderRadius:10, padding:"12px 14px", marginBottom:16, display:"flex", justifyContent:"space-between" }}>
-              <span style={{ color:"#64748B", fontSize:13 }}>סה"כ: <span style={{ color:"#6366F1", fontWeight:700 }}>{formatTime(earn.totalMs)}</span></span>
+            <div style={{ background:T.pre, borderRadius:10, padding:"12px 14px", marginBottom:16, display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:T.textF, fontSize:13 }}>סה"כ: <span style={{ color:"#6366F1", fontWeight:700 }}>{formatTime(earn.totalMs)}</span></span>
               <span style={{ color:"#F59E0B", fontWeight:700, fontSize:15 }}>{formatMoney(earn.total)}</span>
             </div>
           );
         })()}
 
         <div style={{ display:"flex", gap:10 }}>
-          <button onClick={onClose} style={{ flex:1, padding:"12px", background:"#252840", border:"none", borderRadius:12, color:"#94A3B8", cursor:"pointer", fontWeight:600, fontSize:15 }}>ביטול</button>
+          <button onClick={onClose} style={{ flex:1, padding:"12px", background:T.inp, border:"none", borderRadius:12, color:T.textM, cursor:"pointer", fontWeight:600, fontSize:15 }}>ביטול</button>
           <button onClick={handleSave} style={{ flex:2, padding:"12px", background:"#6366F1", border:"none", borderRadius:12, color:"#fff", cursor:"pointer", fontWeight:700, fontSize:15 }}>שמור</button>
         </div>
       </div>
@@ -280,7 +297,7 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
 }
 
 // ── Wage Selector Modal ───────────────────────────────────────────────────────
-function WageModal({ currentRate, onSave, onClose }) {
+function WageModal({ currentRate, onSave, onClose, T=DARK }) {
   const preset = WAGE_PRESETS.find(p => p.value === currentRate);
   const [selected, setSelected] = useState(preset ? preset.value : null);
   const [customVal, setCustomVal] = useState(preset ? "" : String(currentRate));
@@ -293,10 +310,10 @@ function WageModal({ currentRate, onSave, onClose }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}>
-      <div style={{ background:"#1A1D2E", borderRadius:20, padding:24, width:"100%", maxWidth:360, border:"1px solid #2D2F4A" }}>
+      <div style={{ background:T.modal, borderRadius:20, padding:24, width:"100%", maxWidth:360, border:`1px solid ${T.modalB}` }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-          <span style={{ fontWeight:700, fontSize:17, color:"#F1F5F9" }}>תעריף שעתי</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748B", fontSize:22, cursor:"pointer" }}>✕</button>
+          <span style={{ fontWeight:700, fontSize:17, color:T.textS }}>תעריף שעתי</span>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.textF, fontSize:22, cursor:"pointer" }}>✕</button>
         </div>
 
         <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
@@ -304,8 +321,8 @@ function WageModal({ currentRate, onSave, onClose }) {
             <button key={p.label} onClick={() => { setSelected(p.value); if (p.value) setCustomVal(""); }}
               style={{
                 padding:"14px 18px", borderRadius:12, border:"none", cursor:"pointer", textAlign:"right",
-                background: (p.value !== null ? selected === p.value : selected === null) ? "#6366F1" : "#252840",
-                color: (p.value !== null ? selected === p.value : selected === null) ? "#fff" : "#94A3B8",
+                background: (p.value !== null ? selected === p.value : selected === null) ? "#6366F1" : T.inp,
+                color: (p.value !== null ? selected === p.value : selected === null) ? "#fff" : T.textM,
                 fontWeight:700, fontSize:16, display:"flex", justifyContent:"space-between", alignItems:"center"
               }}>
               <span>{p.value ? `₪${p.label}` : p.label}</span>
@@ -316,14 +333,14 @@ function WageModal({ currentRate, onSave, onClose }) {
 
         {selected === null && (
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, color:"#64748B", marginBottom:6 }}>הזן תעריף ידנית</div>
+            <div style={{ fontSize:12, color:T.textF, marginBottom:6 }}>הזן תעריף ידנית</div>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ color:"#F59E0B", fontWeight:700, fontSize:18 }}>₪</span>
               <input
                 type="number" step="0.01" min="0" value={customVal}
                 onChange={e => setCustomVal(e.target.value)}
                 placeholder="0.00"
-                style={{ flex:1, background:"#252840", border:"1px solid #334155", borderRadius:8, padding:"12px", color:"#F1F5F9", fontSize:18, outline:"none" }}
+                style={{ flex:1, background:T.inp, border:`1px solid ${T.inpB}`, borderRadius:8, padding:"12px", color:T.textS, fontSize:18, outline:"none" }}
                 autoFocus
               />
             </div>
@@ -331,7 +348,7 @@ function WageModal({ currentRate, onSave, onClose }) {
         )}
 
         <div style={{ display:"flex", gap:10 }}>
-          <button onClick={onClose} style={{ flex:1, padding:"12px", background:"#252840", border:"none", borderRadius:12, color:"#94A3B8", cursor:"pointer", fontWeight:600, fontSize:15 }}>ביטול</button>
+          <button onClick={onClose} style={{ flex:1, padding:"12px", background:T.inp, border:"none", borderRadius:12, color:T.textM, cursor:"pointer", fontWeight:600, fontSize:15 }}>ביטול</button>
           <button onClick={handleSave} style={{ flex:2, padding:"12px", background:"#6366F1", border:"none", borderRadius:12, color:"#fff", cursor:"pointer", fontWeight:700, fontSize:15 }}>שמור</button>
         </div>
       </div>
@@ -368,12 +385,15 @@ export default function WorkHoursTracker() {
     return (!isNaN(saved) && saved > 0) ? saved : 52.19;
   });
   const [showPWA, setShowPWA] = useState(() => localStorage.getItem("pwa_dismissed") !== "1");
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "dark");
+  const T = theme === "dark" ? DARK : LIGHT;
   const [data, setData] = useState(() => { try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):{}; } catch { return {}; } });
   const [summaryMonth, setSummaryMonth] = useState(() => { const d=new Date(); return {year:d.getFullYear(),month:d.getMonth()}; });
 
   useEffect(() => { const t=setInterval(()=>setNow(new Date()),1000); return ()=>clearInterval(t); },[]);
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} }, [data]);
   useEffect(() => { try { localStorage.setItem(WAGE_KEY, String(hourlyRate)); } catch {} }, [hourlyRate]);
+  useEffect(() => { try { localStorage.setItem(THEME_KEY, theme); } catch {} }, [theme]);
 
   const todayKey = getDayKey(now);
   const todayData = data[todayKey] || { sessions:[], active:null };
@@ -429,12 +449,33 @@ export default function WorkHoursTracker() {
 
   const secDeg=now.getSeconds()*6, minDeg=now.getMinutes()*6+now.getSeconds()*0.1, hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
 
-  const S = { card:{background:"#1A1D2E",borderRadius:16,border:"1px solid #252840"}, label:{fontSize:11,color:"#64748B",marginTop:4}, gold:"#F59E0B", purple:"#6366F1", green:"#22C55E", red:"#EF4444", violet:"#A78BFA" };
+  const S = { card:{background:T.card,borderRadius:16,border:`1px solid ${T.cardB}`}, label:{fontSize:11,color:T.textF,marginTop:4}, gold:"#F59E0B", purple:"#6366F1", green:"#22C55E", red:"#EF4444", violet:"#A78BFA" };
 
   const todayHoliday = getHolidayName(now.getTime());
 
+  const handleSwipeStart = (e) => {
+    e.currentTarget._tx = e.touches[0].clientX;
+    e.currentTarget._ty = e.touches[0].clientY;
+    e.currentTarget._moved = false;
+  };
+  const handleSwipeMove = (e) => {
+    const dx = e.touches[0].clientX - (e.currentTarget._tx || 0);
+    const dy = e.touches[0].clientY - (e.currentTarget._ty || 0);
+    if (!e.currentTarget._moved && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+      e.currentTarget._moved = true;
+    }
+  };
+  const handleSwipeEnd = (e) => {
+    if (!e.currentTarget._moved) return;
+    const dx = e.changedTouches[0].clientX - (e.currentTarget._tx || 0);
+    if (Math.abs(dx) > 50) {
+      setView(dx < 0 ? "summary" : "clock");
+    }
+    e.currentTarget._moved = false;
+  };
+
   return (
-    <div style={{minHeight:"100vh",background:"#0F1117",color:"#E2E8F0",fontFamily:"'Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center"}}>
+    <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center"}}>
 
       {manualEntry && (
         <ManualEntryModal
@@ -443,6 +484,7 @@ export default function WorkHoursTracker() {
           onSave={sessions => handleManualSave(manualEntry.date, sessions)}
           onClose={() => setManualEntry(null)}
           hourlyRate={hourlyRate}
+          T={T}
         />
       )}
 
@@ -451,6 +493,7 @@ export default function WorkHoursTracker() {
           currentRate={hourlyRate}
           onSave={rate => { setHourlyRate(rate); setShowWage(false); }}
           onClose={() => setShowWage(false)}
+          T={T}
         />
       )}
 
@@ -458,38 +501,41 @@ export default function WorkHoursTracker() {
       <div style={{width:"100%",maxWidth:480,padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:20,fontWeight:700,color:"#F1F5F9"}}>מעקב שעות</span>
-          <button onClick={()=>setShowWage(true)} style={{background:"#1A1D2E",border:"1px solid #334155",borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+          <button onClick={()=>setShowWage(true)} style={{background:T.card,border:`1px solid ${T.inpB}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
             <span style={{fontSize:12,color:S.gold,fontWeight:700}}>₪{hourlyRate.toFixed(2)}</span>
             <span style={{fontSize:11,color:"#475569"}}>✎</span>
           </button>
         </div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:T.nav,border:`1px solid ${T.cardB}`,borderRadius:20,padding:"7px 10px",cursor:"pointer",fontSize:16,lineHeight:1,color:T.textM}}>{theme==="dark"?"☀️":"🌙"}</button>
           {["clock","summary"].map(v=>(
-            <button key={v} onClick={()=>setView(v)} style={{padding:"7px 16px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:14,background:view===v?S.purple:"#1E2130",color:view===v?"#fff":"#94A3B8"}}>
+            <button key={v} onClick={()=>setView(v)} style={{padding:"7px 16px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:14,background:view===v?S.purple:T.nav,color:view===v?"#fff":T.textM}}>
               {v==="clock"?"שעון":"סיכום"}
             </button>
           ))}
         </div>
       </div>
 
-      {view === "clock" ? (
-        <div style={{width:"100%",maxWidth:480,padding:"22px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:20}}>
+      <div style={{width:"100%",overflow:"hidden",flex:1}} onTouchStart={handleSwipeStart} onTouchMove={handleSwipeMove} onTouchEnd={handleSwipeEnd}>
+        <div style={{display:"flex",width:"200%",transform:view==="clock"?"translateX(0)":"translateX(-50%)",transition:"transform 0.35s cubic-bezier(0.4,0,0.2,1)"}}>
+          <div style={{width:"50%",flexShrink:0}}>
+            <div style={{maxWidth:480,margin:"0 auto",padding:"22px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:20}}>
 
           {showPWA && <PWABanner onDismiss={()=>{ setShowPWA(false); localStorage.setItem("pwa_dismissed","1"); }} />}
 
           {/* Analog Clock */}
           <svg width="180" height="180" viewBox="0 0 200 200">
-            <circle cx="100" cy="100" r="96" fill="none" stroke="#1E2130" strokeWidth="8"/>
-            <circle cx="100" cy="100" r="90" fill="#13151F"/>
-            {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*Math.PI/180; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke="#334155" strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
-            <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*Math.PI/180)} y2={100+50*Math.sin((hourDeg-90)*Math.PI/180)} stroke="#E2E8F0" strokeWidth="4" strokeLinecap="round"/>
-            <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*Math.PI/180)} y2={100+68*Math.sin((minDeg-90)*Math.PI/180)} stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round"/>
+            <circle cx="100" cy="100" r="96" fill="none" stroke={T.cr} strokeWidth="8"/>
+            <circle cx="100" cy="100" r="90" fill={T.cf}/>
+            {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*Math.PI/180; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={T.ct} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
+            <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*Math.PI/180)} y2={100+50*Math.sin((hourDeg-90)*Math.PI/180)} stroke={T.ch} strokeWidth="4" strokeLinecap="round"/>
+            <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*Math.PI/180)} y2={100+68*Math.sin((minDeg-90)*Math.PI/180)} stroke={T.cm} strokeWidth="2.5" strokeLinecap="round"/>
             <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*Math.PI/180)} y2={100+72*Math.sin((secDeg-90)*Math.PI/180)} stroke={S.purple} strokeWidth="1.5" strokeLinecap="round"/>
             <circle cx="100" cy="100" r="4" fill={S.purple}/>
           </svg>
 
           <div style={{textAlign:"center"}}>
-            <div style={{fontSize:38,fontWeight:300,letterSpacing:2,color:"#F1F5F9",fontVariantNumeric:"tabular-nums"}}>{formatClock(now)}</div>
+            <div style={{fontSize:38,fontWeight:300,letterSpacing:2,color:T.textS,fontVariantNumeric:"tabular-nums"}}>{formatClock(now)}</div>
             <div style={{fontSize:14,color:"#64748B",marginTop:3}}>
               {DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
               {todayHoliday && <span style={{color:S.violet,marginRight:8}}>· {todayHoliday} ✦</span>}
@@ -513,8 +559,8 @@ export default function WorkHoursTracker() {
 
           {/* Next premium event */}
           {nextPremiumEvent && (
-            <div style={{width:"100%",background:"#1A1420",borderRadius:10,padding:"10px 16px",border:"1px solid #2D1F40",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:13,color:"#94A3B8"}}>הבא: {nextPremiumEvent.name}</span>
+            <div style={{width:"100%",background:T.evBg,borderRadius:10,padding:"10px 16px",border:`1px solid ${T.evB}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:13,color:T.textM}}>הבא: {nextPremiumEvent.name}</span>
               <span style={{fontSize:13,fontWeight:700,color:S.violet}}>{nextPremiumEvent.label}</span>
             </div>
           )}
@@ -535,21 +581,21 @@ export default function WorkHoursTracker() {
           </button>
 
           {/* Manual entry for today */}
-          <button onClick={()=>setManualEntry({date:new Date()})} style={{background:"#1A1D2E",border:"1px solid #334155",borderRadius:12,padding:"10px 20px",color:"#94A3B8",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setManualEntry({date:new Date()})} style={{background:T.card,border:`1px solid ${T.inpB}`,borderRadius:12,padding:"10px 20px",color:T.textM,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",gap:8}}>
             <span>✏️</span> הזן שעות ידנית להיום
           </button>
 
           {/* Sessions today */}
           {(todayData.sessions?.length>0||todayData.active) && (
             <div style={{width:"100%"}}>
-              <div style={{fontSize:13,color:"#64748B",marginBottom:8,fontWeight:600}}>סשנים היום</div>
+              <div style={{fontSize:13,color:T.textF,marginBottom:8,fontWeight:600}}>סשנים היום</div>
               {[...(todayData.sessions||[]),...(todayData.active?[{start:todayData.active,end:Date.now(),live:true}]:[])].map((s,i)=>{
                 const sp=splitSession(s.start,s.end);
                 const earn=(sp.regularMs/3600000)*hourlyRate+(sp.premiumMs/3600000)*hourlyRate*PREMIUM_RATE;
                 const hol=getHolidayName(s.start)||getHolidayName((s.start+s.end)/2);
                 return (
                   <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",...S.card,borderRadius:10,marginBottom:6,fontSize:13}}>
-                    <span style={{color:"#94A3B8"}}>
+                    <span style={{color:T.textM}}>
                       {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} → {s.live?<span style={{color:S.green}}>עכשיו</span>:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
                       {sp.premiumMs>0&&<span style={{color:S.violet,marginRight:6,fontSize:11}}>✦ {hol||"שבת"}</span>}
                     </span>
@@ -559,21 +605,23 @@ export default function WorkHoursTracker() {
               })}
             </div>
           )}
-        </div>
-      ) : (
-        /* ── Summary ── */
-        <div style={{width:"100%",maxWidth:480,padding:"24px 20px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:"#1A1D2E",border:"1px solid #252840",color:"#94A3B8",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>›</button>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:22,fontWeight:700,color:"#F1F5F9"}}>{MONTH_NAMES[month]} {year}</div>
-              <div style={{fontSize:15,color:S.gold,fontWeight:700,marginTop:2}}>{formatMoney(monthTotals.total)}</div>
             </div>
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:"#1A1D2E",border:"1px solid #252840",color:"#94A3B8",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>‹</button>
+          </div>
+          </div>
+          <div style={{width:"50%",flexShrink:0}}>
+            <div style={{maxWidth:480,margin:"0 auto",padding:"24px 20px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.card,border:`1px solid ${T.cardB}`,color:T.textM,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>›</button>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:700,color:T.textS}}>{MONTH_NAMES[month]} {year}</div>
+              <div style={{fontSize:15,color:S.gold,fontWeight:700,marginTop:2}}>{formatMoney(monthTotals.total)}</div>
+              {(year!==new Date().getFullYear()||month!==new Date().getMonth())&&(<button onClick={()=>{const d=new Date();setSummaryMonth({year:d.getFullYear(),month:d.getMonth()});}} style={{marginTop:6,background:S.purple,border:"none",borderRadius:12,padding:"3px 12px",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>היום ↩</button>)}
+            </div>
+            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.card,border:`1px solid ${T.cardB}`,color:T.textM,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>‹</button>
           </div>
 
           {/* Month totals */}
-          <div style={{...S.card,padding:"14px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,textAlign:"center"}}>
+          <div style={{...S.card,padding:"14px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,textAlign:"center",background:T.card,border:`1px solid ${T.cardB}`}}>
             <div><div style={{fontSize:19,fontWeight:700,color:S.purple}}>{formatTime(monthTotals.totalMs)}</div><div style={S.label}>שעות עבודה</div></div>
             <div><div style={{fontSize:19,fontWeight:700,color:S.gold}}>{formatMoney(monthTotals.regularEarnings)}</div><div style={S.label}>שכר רגיל</div></div>
             <div><div style={{fontSize:19,fontWeight:700,color:S.violet}}>{formatMoney(monthTotals.premiumEarnings)}</div><div style={S.label}>בונוס ×1.5</div></div>
@@ -596,15 +644,15 @@ export default function WorkHoursTracker() {
               return (
                 <div key={date.getDate()}>
                   <div onClick={()=>earnings.totalMs>0?setExpandedDay(isExp?null:getDayKey(date)):setManualEntry({date})}
-                    style={{...S.card,borderRadius:12,padding:"11px 14px",border:isToday?"1px solid #6366F1":"1px solid #252840",background:isToday?"#1E2145":"#1A1D2E",position:"relative",overflow:"hidden",cursor:"pointer"}}>
+                    style={{...S.card,borderRadius:12,padding:"11px 14px",border:isToday?`1px solid ${T.todayB}`:`1px solid ${T.cardB}`,background:isToday?T.todayBg:T.card,position:"relative",overflow:"hidden",cursor:"pointer"}}>
                     {earnings.totalMs>0&&<div style={{position:"absolute",right:0,top:0,bottom:0,width:`${pct*100}%`,background:hasPremium?"linear-gradient(90deg,transparent,rgba(167,139,250,0.08))":"linear-gradient(90deg,transparent,rgba(99,102,241,0.08))",pointerEvents:"none"}}/>}
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",position:"relative"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
-                        <div style={{width:34,height:34,borderRadius:9,background:isToday?S.purple:"#252840",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <span style={{fontSize:14,fontWeight:700,color:isToday?"#fff":isWeekend?"#475569":"#94A3B8"}}>{date.getDate()}</span>
+                        <div style={{width:34,height:34,borderRadius:9,background:isToday?S.purple:T.nav,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <span style={{fontSize:14,fontWeight:700,color:isToday?"#fff":isWeekend?T.textVF:T.textM}}>{date.getDate()}</span>
                         </div>
                         <div>
-                          <div style={{fontSize:13,color:isWeekend?"#475569":"#94A3B8",fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{fontSize:13,color:isWeekend?T.textVF:T.textM,fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
                             {DAY_NAMES[date.getDay()]}
                             {isToday&&<span style={{color:S.purple,fontSize:10}}>היום</span>}
                             {holidayToday&&<span style={{color:S.violet,fontSize:10}}>✦ {holidayToday.name}</span>}
@@ -630,12 +678,12 @@ export default function WorkHoursTracker() {
 
                   {/* Expanded */}
                   {isExp&&entry&&(
-                    <div style={{...S.card,borderRadius:"0 0 12px 12px",padding:"12px 14px",borderTop:"none",background:"#161827",marginTop:-4}}>
+                    <div style={{...S.card,borderRadius:"0 0 12px 12px",padding:"12px 14px",borderTop:"none",background:T.exp,marginTop:-4}}>
                       {[...(entry.sessions||[]),...(entry.active?[{start:entry.active,end:Date.now(),live:true}]:[])].map((s,i)=>{
                         const sp=splitSession(s.start,s.end);
                         const earn=(sp.regularMs/3600000)*hourlyRate+(sp.premiumMs/3600000)*hourlyRate*PREMIUM_RATE;
                         return (
-                          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #1E2130",fontSize:12}}>
+                          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${T.cardB}`,fontSize:12}}>
                             <span style={{color:"#64748B"}}>
                               {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} → {s.live?"עכשיו":new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
                               {sp.premiumMs>0&&<span style={{color:S.violet,marginRight:4}}> ✦ {formatTime(sp.premiumMs)}</span>}
@@ -646,7 +694,7 @@ export default function WorkHoursTracker() {
                       })}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,fontSize:12}}>
                         <button onClick={()=>setManualEntry({date})} style={{background:"none",border:"none",color:"#6366F1",cursor:"pointer",fontSize:12,padding:0}}>✏️ עריכה</button>
-                        <div style={{color:"#64748B"}}>
+                        <div style={{color:T.textF}}>
                           רגיל: <span style={{color:S.gold}}>{formatMoney(earnings.regularEarnings)}</span>
                           {earnings.premiumMs>0&&<> · ×1.5: <span style={{color:S.violet}}>{formatMoney(earnings.premiumEarnings)}</span></>}
                         </div>
@@ -659,8 +707,11 @@ export default function WorkHoursTracker() {
             })}
           </div>
           <div style={{height:32}}/>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
+      </div>
     </div>
   );
 }
