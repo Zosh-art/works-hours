@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 
 const STORAGE_KEY = "work_hours_data_v3";
 const WAGE_KEY = "hourly_rate_v1";
+const DEG = Math.PI / 180;
 const THEME_KEY = "app_theme_v1";
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
@@ -84,15 +85,15 @@ function getSunsetIL(year, month, day) {
   const JD = calcJD(year, month, day);
   const T = (JD - 2451545.0) / 36525.0;
   const L0 = (280.46646 + T*(36000.76983 + T*0.0003032)) % 360;
-  const M = (357.52911 + T*(35999.05029 - 0.0001537*T)) * Math.PI/180;
+  const M = (357.52911 + T*(35999.05029 - 0.0001537*T)) * DEG;
   const C = (1.914602 - T*(0.004817 + 0.000014*T))*Math.sin(M) + (0.019993 - 0.000101*T)*Math.sin(2*M) + 0.000289*Math.sin(3*M);
-  const sunLon = (L0 + C) * Math.PI/180;
+  const sunLon = (L0 + C) * DEG;
   const e = 0.016708634 - T*(0.000042037 + 0.0000001267*T);
-  const eps = (23.439291111 - T*(0.013004167 + T*(0.00000164 - T*0.000000504))) * Math.PI/180;
+  const eps = (23.439291111 - T*(0.013004167 + T*(0.00000164 - T*0.000000504))) * DEG;
   const dec = Math.asin(Math.sin(eps)*Math.sin(sunLon));
-  const y2 = Math.tan(eps/2)**2, L0r = L0*Math.PI/180;
+  const y2 = Math.tan(eps/2)**2, L0r = L0*DEG;
   const eqTime = (y2*Math.sin(2*L0r) - 2*e*Math.sin(M) + 4*e*y2*Math.sin(M)*Math.cos(2*L0r) - 0.5*y2*y2*Math.sin(4*L0r) - 1.25*e*e*Math.sin(2*M))*4*180/Math.PI;
-  const cosHA = (Math.cos(90.833*Math.PI/180) - Math.sin(lat*Math.PI/180)*Math.sin(dec)) / (Math.cos(lat*Math.PI/180)*Math.cos(dec));
+  const cosHA = (Math.cos(90.833*DEG) - Math.sin(lat*DEG)*Math.sin(dec)) / (Math.cos(lat*DEG)*Math.cos(dec));
   const HAdeg = Math.acos(cosHA)*180/Math.PI;
   const sunsetUTC = (720 - 4*lon - eqTime)/60 + HAdeg*4/60;
   const dateObj = new Date(year, month-1, day);
@@ -527,10 +528,10 @@ export default function WorkHoursTracker() {
           <svg width="180" height="180" viewBox="0 0 200 200">
             <circle cx="100" cy="100" r="96" fill="none" stroke={T.cr} strokeWidth="8"/>
             <circle cx="100" cy="100" r="90" fill={T.cf}/>
-            {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*Math.PI/180; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={T.ct} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
-            <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*Math.PI/180)} y2={100+50*Math.sin((hourDeg-90)*Math.PI/180)} stroke={T.ch} strokeWidth="4" strokeLinecap="round"/>
-            <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*Math.PI/180)} y2={100+68*Math.sin((minDeg-90)*Math.PI/180)} stroke={T.cm} strokeWidth="2.5" strokeLinecap="round"/>
-            <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*Math.PI/180)} y2={100+72*Math.sin((secDeg-90)*Math.PI/180)} stroke={S.purple} strokeWidth="1.5" strokeLinecap="round"/>
+            {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*DEG; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={T.ct} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
+            <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*DEG)} y2={100+50*Math.sin((hourDeg-90)*DEG)} stroke={T.ch} strokeWidth="4" strokeLinecap="round"/>
+            <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*DEG)} y2={100+68*Math.sin((minDeg-90)*DEG)} stroke={T.cm} strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*DEG)} y2={100+72*Math.sin((secDeg-90)*DEG)} stroke={S.purple} strokeWidth="1.5" strokeLinecap="round"/>
             <circle cx="100" cy="100" r="4" fill={S.purple}/>
           </svg>
 
