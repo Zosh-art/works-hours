@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 const STORAGE_KEY = "work_hours_data_v3";
 const WAGE_KEY = "hourly_rate_v1";
 const THEME_KEY = "app_theme_v1";
+const SHOW_PARASHA_KEY = "show_parasha_v1";
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
   { label: "52.19", value: 52.19 },
@@ -37,6 +38,118 @@ const JEWISH_HOLIDAYS_RAW = [
   { name: "פסח (ז׳-ח׳)", eve: [2027,3,27], endDay: [2027,3,29] },
   { name: "שבועות", eve: [2027,5,11], endDay: [2027,5,13] },
 ];
+
+// ── Parasha list: [name, shabbat_date YYYY-MM-DD (Israel)] ───────────────────
+// Israel cycle 2024-2027
+const PARASHA_LIST = [
+  ["בראשית","2024-10-26"],["נח","2024-11-02"],["לך לך","2024-11-09"],
+  ["וירא","2024-11-16"],["חיי שרה","2024-11-23"],["תולדות","2024-11-30"],
+  ["ויצא","2024-12-07"],["וישלח","2024-12-14"],["וישב","2024-12-21"],
+  ["מקץ","2024-12-28"],["ויגש","2025-01-04"],["ויחי","2025-01-11"],
+  ["שמות","2025-01-18"],["וארא","2025-01-25"],["בא","2025-02-01"],
+  ["בשלח","2025-02-08"],["יתרו","2025-02-15"],["משפטים","2025-02-22"],
+  ["תרומה","2025-03-01"],["תצוה","2025-03-08"],["כי תשא","2025-03-15"],
+  ["ויקהל-פקודי","2025-03-22"],["ויקרא","2025-03-29"],["צו","2025-04-05"],
+  ["שמיני","2025-04-26"],["תזריע-מצורע","2025-05-03"],["אחרי מות-קדושים","2025-05-10"],
+  ["אמור","2025-05-17"],["בהר-בחוקותי","2025-05-24"],["במדבר","2025-05-31"],
+  ["נשא","2025-06-07"],["בהעלותך","2025-06-14"],["שלח","2025-06-21"],
+  ["קורח","2025-06-28"],["חקת","2025-07-05"],["בלק","2025-07-12"],
+  ["פינחס","2025-07-19"],["מטות-מסעי","2025-07-26"],["דברים","2025-08-02"],
+  ["ואתחנן","2025-08-09"],["עקב","2025-08-16"],["ראה","2025-08-23"],
+  ["שופטים","2025-08-30"],["כי תצא","2025-09-06"],["כי תבוא","2025-09-13"],
+  ["ניצבים","2025-09-20"],["וילך","2025-10-11"],["האזינו","2025-10-18"],
+  ["וזאת הברכה","2025-10-14"],
+  ["בראשית","2025-10-25"],["נח","2025-11-01"],["לך לך","2025-11-08"],
+  ["וירא","2025-11-15"],["חיי שרה","2025-11-22"],["תולדות","2025-11-29"],
+  ["ויצא","2025-12-06"],["וישלח","2025-12-13"],["וישב","2025-12-20"],
+  ["מקץ","2025-12-27"],["ויגש","2026-01-03"],["ויחי","2026-01-10"],
+  ["שמות","2026-01-17"],["וארא","2026-01-24"],["בא","2026-01-31"],
+  ["בשלח","2026-02-07"],["יתרו","2026-02-14"],["משפטים","2026-02-21"],
+  ["תרומה","2026-02-28"],["תצוה","2026-03-07"],["כי תשא","2026-03-14"],
+  ["ויקהל-פקודי","2026-03-21"],["ויקרא","2026-04-11"],["צו","2026-04-18"],
+  ["שמיני","2026-04-25"],["תזריע-מצורע","2026-05-02"],["אחרי מות-קדושים","2026-05-09"],
+  ["אמור","2026-05-16"],["בהר","2026-05-23"],["בחוקותי","2026-05-30"],
+  ["במדבר","2026-06-06"],["נשא","2026-06-13"],["בהעלותך","2026-06-20"],
+  ["שלח","2026-06-27"],["קורח","2026-07-04"],["חקת","2026-07-11"],
+  ["בלק","2026-07-18"],["פינחס","2026-07-25"],["מטות","2026-08-01"],
+  ["מסעי","2026-08-08"],["דברים","2026-08-15"],["ואתחנן","2026-08-22"],
+  ["עקב","2026-08-29"],["ראה","2026-09-05"],["שופטים","2026-09-12"],
+  ["כי תצא","2026-09-19"],["כי תבוא","2026-09-26"],["ניצבים-וילך","2026-10-03"],
+  ["האזינו","2026-10-17"],
+  ["בראשית","2026-11-07"],["נח","2026-11-14"],["לך לך","2026-11-21"],
+  ["וירא","2026-11-28"],["חיי שרה","2026-12-05"],["תולדות","2026-12-12"],
+  ["ויצא","2026-12-19"],["וישלח","2026-12-26"],["וישב","2027-01-02"],
+  ["מקץ","2027-01-09"],["ויגש","2027-01-16"],["ויחי","2027-01-23"],
+  ["שמות","2027-01-30"],["וארא","2027-02-06"],["בא","2027-02-13"],
+  ["בשלח","2027-02-20"],["יתרו","2027-02-27"],["משפטים","2027-03-06"],
+  ["תרומה","2027-03-13"],["תצוה","2027-03-20"],["כי תשא","2027-03-27"],
+  ["ויקהל","2027-04-17"],["פקודי","2027-04-24"],["ויקרא","2027-05-01"],
+];
+
+// Returns parasha name for a given JS Date (Friday or Saturday)
+function getParasha(date) {
+  const d = new Date(date);
+  // Normalize to the Shabbat of that week
+  const day = d.getDay();
+  if (day === 5) d.setDate(d.getDate() + 1); // Friday → Saturday
+  else if (day !== 6) return null;            // only Fri/Sat
+  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const found = PARASHA_LIST.find(([,dt]) => dt === key);
+  return found ? found[0] : null;
+}
+
+// ── Hebrew date formatting ────────────────────────────────────────────────────
+const HEB_DAY = ["","א","ב","ג","ד","ה","ו","ז","ח","ט","י","יא","יב","יג","יד","טו","טז","יז","יח","יט","כ","כא","כב","כג","כד","כה","כו","כז","כח","כט","ל"];
+const HEB_HUNDREDS = ["","ק","ר","ש","ת","תק","תר","תש","תת","תתק"];
+const HEB_TENS    = ["","י","כ","ל","מ","נ","ס","ע","פ","צ"];
+const HEB_UNITS   = ["","א","ב","ג","ד","ה","ו","ז","ח","ט"];
+
+// Convert a number (within-millennium, e.g. 785) to gematria with geresh/gershayim
+function numToGematria(n) {
+  const h = Math.floor(n / 100);
+  const t = Math.floor((n % 100) / 10);
+  const u = n % 10;
+  let s = (HEB_HUNDREDS[h] || "") + (HEB_TENS[t] || "") + (HEB_UNITS[u] || "");
+  if (!s) return "";
+  if (s.length === 1) return s + "׳";
+  return s.slice(0, -1) + "״" + s.slice(-1);
+}
+
+function getHebrewDateStr(date) {
+  try {
+    const fmt = new Intl.DateTimeFormat("he-IL-u-ca-hebrew", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+    const parts = fmt.formatToParts(date);
+    const monthPart = parts.find(p => p.type === "month")?.value || "";
+    const yearRaw   = parts.find(p => p.type === "year")?.value  || "";
+
+    // Day: get numeric value and convert to gematria
+    const dayNum = parseInt(
+      new Intl.DateTimeFormat("he-IL-u-ca-hebrew", { day: "numeric" }).format(date)
+    );
+    const dayStr = (HEB_DAY[dayNum] || String(dayNum)) + "׳";
+
+    // Year: Intl may return "5785" (number) or "ה׳תשפ״ה" (already gematria)
+    // If it contains only digits → convert ourselves
+    let yearStr;
+    if (/^\d+$/.test(yearRaw.trim())) {
+      // Pure number like "5786"
+      const fullYear = parseInt(yearRaw);
+      const withinMillennium = fullYear % 1000;
+      yearStr = "ה׳" + numToGematria(withinMillennium);
+    } else {
+      // Already in letter form — strip leading millennium prefix like "ה׳"
+      yearStr = yearRaw.replace(/^[א-ת]׳\s*/, "");
+      // If nothing left, re-add without prefix
+      if (!yearStr) yearStr = yearRaw;
+    }
+
+    return `${dayStr} ב${monthPart} ה${yearStr}`;
+  } catch {
+    return "";
+  }
+}
 
 const DARK_THEME = {
   bg:"#0F1117", cardBg:"#1A1D2E", cardBorder:"#252840",
@@ -129,9 +242,7 @@ function getShabbatWindow(dateTs) {
 function isInPremiumWindow(ts) {
   const sw = getShabbatWindow(ts);
   if (ts >= sw.start && ts < sw.end) return true;
-  for (const hw of HOLIDAY_WINDOWS) {
-    if (ts >= hw.start && ts < hw.end) return true;
-  }
+  for (const hw of HOLIDAY_WINDOWS) { if (ts >= hw.start && ts < hw.end) return true; }
   return false;
 }
 
@@ -139,12 +250,8 @@ function getNextPremiumStart(startTs, endTs) {
   const candidates = [];
   const sw = getShabbatWindow(startTs);
   if (sw.start > startTs && sw.start < endTs) candidates.push(sw.start);
-  for (const hw of HOLIDAY_WINDOWS) {
-    if (hw.start > startTs && hw.start < endTs) candidates.push(hw.start);
-  }
-  for (const eveSunset of HOLIDAY_EVE_SUNSETS) {
-    if (eveSunset > startTs && eveSunset < endTs) candidates.push(eveSunset);
-  }
+  for (const hw of HOLIDAY_WINDOWS) { if (hw.start > startTs && hw.start < endTs) candidates.push(hw.start); }
+  for (const eveSunset of HOLIDAY_EVE_SUNSETS) { if (eveSunset > startTs && eveSunset < endTs) candidates.push(eveSunset); }
   return candidates.length ? Math.min(...candidates) : null;
 }
 
@@ -164,7 +271,7 @@ function getHolidayName(ts) {
 function formatTime(ms) {
   if (!ms || ms <= 0) return "0:00";
   const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-  return `${h}:${m.toString().padStart(2,"00")}`;
+  return `${h}:${m.toString().padStart(2,"0")}`;
 }
 function formatMoney(n) { return "₪" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,","); }
 function formatClock(d) { return d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); }
@@ -191,22 +298,15 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
         }))
       : [{ startStr: "09:00", endStr: "17:00" }]
   );
-
   function parseTime(ds, timeStr) {
     const [h, m] = timeStr.split(":").map(Number);
     if (isNaN(h) || isNaN(m)) return null;
-    const d = new Date(ds + "T00:00:00");
-    d.setHours(h, m, 0, 0);
-    return d.getTime();
+    const d = new Date(ds + "T00:00:00"); d.setHours(h, m, 0, 0); return d.getTime();
   }
-
   function handleSave() {
-    const parsed = sessions.map(s => ({ start: parseTime(dateStr, s.startStr), end: parseTime(dateStr, s.endStr) }))
-      .filter(s => s.start && s.end && s.end > s.start);
-    if (!parsed.length) return;
-    onSave(parsed);
+    const parsed = sessions.map(s => ({ start: parseTime(dateStr, s.startStr), end: parseTime(dateStr, s.endStr) })).filter(s => s.start && s.end && s.end > s.start);
+    if (!parsed.length) return; onSave(parsed);
   }
-
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
       <div style={{background:T.modalBg,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:`1px solid ${T.modalBorder}`}}>
@@ -227,8 +327,7 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
                 style={{width:"100%",background:T.inputBg,border:`1px solid ${T.inputBorder}`,borderRadius:8,padding:"10px 12px",color:T.textStrong,fontSize:16,outline:"none"}} />
             </div>
             {sessions.length > 1 && (
-              <button onClick={() => setSessions(prev => prev.filter((_,j) => j!==i))}
-                style={{background:"none",border:"none",color:"#EF4444",fontSize:20,cursor:"pointer",marginTop:16}}>✕</button>
+              <button onClick={() => setSessions(prev => prev.filter((_,j) => j!==i))} style={{background:"none",border:"none",color:"#EF4444",fontSize:20,cursor:"pointer",marginTop:16}}>✕</button>
             )}
           </div>
         ))}
@@ -260,13 +359,10 @@ function WageModal({ currentRate, onSave, onClose, T=DARK_THEME }) {
   const preset = WAGE_PRESETS.find(p => p.value === currentRate);
   const [selected, setSelected] = useState(preset ? preset.value : null);
   const [customVal, setCustomVal] = useState(preset ? "" : String(currentRate));
-
   function handleSave() {
     const rate = selected !== null ? selected : parseFloat(customVal.replace(",","."));
-    if (!rate || isNaN(rate) || rate <= 0) return;
-    onSave(rate);
+    if (!rate || isNaN(rate) || rate <= 0) return; onSave(rate);
   }
-
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
       <div style={{background:T.modalBg,borderRadius:20,padding:24,width:"100%",maxWidth:360,border:`1px solid ${T.modalBorder}`}}>
@@ -327,6 +423,7 @@ export default function WorkHoursTracker() {
   const [expandedDay, setExpandedDay] = useState(null);
   const [manualEntry, setManualEntry] = useState(null);
   const [showWage, setShowWage] = useState(false);
+  const [showParasha, setShowParasha] = useState(() => localStorage.getItem(SHOW_PARASHA_KEY) !== "0");
   const [hourlyRate, setHourlyRate] = useState(() => {
     const saved = parseFloat(localStorage.getItem(WAGE_KEY));
     return (!isNaN(saved) && saved > 0) ? saved : 52.19;
@@ -341,6 +438,7 @@ export default function WorkHoursTracker() {
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); } catch {} },[data]);
   useEffect(() => { try { localStorage.setItem(WAGE_KEY,String(hourlyRate)); } catch {} },[hourlyRate]);
   useEffect(() => { try { localStorage.setItem(THEME_KEY,theme); } catch {} },[theme]);
+  useEffect(() => { try { localStorage.setItem(SHOW_PARASHA_KEY, showParasha?"1":"0"); } catch {} },[showParasha]);
 
   const todayKey = getDayKey(now);
   const todayData = data[todayKey] || { sessions:[], active:null };
@@ -392,9 +490,9 @@ export default function WorkHoursTracker() {
   const secDeg=now.getSeconds()*6, minDeg=now.getMinutes()*6+now.getSeconds()*0.1, hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
   const S = {card:{background:T.cardBg,borderRadius:16,border:`1px solid ${T.cardBorder}`},label:{fontSize:11,color:T.textFaint,marginTop:4},gold:"#F59E0B",purple:"#6366F1",green:"#22C55E",red:"#EF4444",violet:"#A78BFA"};
   const todayHoliday = getHolidayName(now.getTime());
-
-  // Swipe handling
-  const touchRef = { tx:0, ty:0, moved:false };
+  const todayHebrewDate = getHebrewDateStr(now);
+  const todayParasha = getParasha(now);
+  const isFriOrSat = now.getDay()===5||now.getDay()===6;
 
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center"}}>
@@ -445,10 +543,14 @@ export default function WorkHoursTracker() {
 
           <div style={{textAlign:"center"}}>
             <div style={{fontSize:38,fontWeight:300,letterSpacing:2,color:T.textStrong,fontVariantNumeric:"tabular-nums"}}>{formatClock(now)}</div>
-            <div style={{fontSize:14,color:"#64748B",marginTop:3}}>
+            <div style={{fontSize:14,color:T.textMuted,marginTop:3}}>
               {DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
               {todayHoliday&&<span style={{color:S.violet,marginRight:8}}>· {todayHoliday} ✦</span>}
             </div>
+            {todayHebrewDate&&<div style={{fontSize:13,color:T.textFaint,marginTop:3}}>{todayHebrewDate}</div>}
+            {isFriOrSat&&todayParasha&&(
+              <div style={{fontSize:12,color:S.violet,marginTop:4,fontWeight:600}}>פרשת {todayParasha} ✦</div>
+            )}
           </div>
 
           <div style={{...S.card,padding:"16px 12px",width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8}}>
@@ -518,6 +620,7 @@ export default function WorkHoursTracker() {
       {/* ── Summary Panel ── */}
       {view === "summary" && (
         <div style={{width:"100%",maxWidth:480,padding:"24px 20px"}}>
+          {/* Month nav */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
             <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
               style={{background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textMuted,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>›</button>
@@ -535,12 +638,25 @@ export default function WorkHoursTracker() {
               style={{background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textMuted,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>‹</button>
           </div>
 
+          {/* Totals */}
           <div style={{...S.card,padding:"14px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,textAlign:"center"}}>
             <div><div style={{fontSize:19,fontWeight:700,color:S.purple}}>{formatTime(monthTotals.totalMs)}</div><div style={S.label}>שעות עבודה</div></div>
             <div><div style={{fontSize:19,fontWeight:700,color:S.gold}}>{formatMoney(monthTotals.regularEarnings)}</div><div style={S.label}>שכר רגיל</div></div>
             <div><div style={{fontSize:19,fontWeight:700,color:S.violet}}>{formatMoney(monthTotals.premiumEarnings)}</div><div style={S.label}>בונוס ×1.5</div></div>
           </div>
 
+          {/* Show parasha toggle */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"8px 12px",...S.card,borderRadius:10}}>
+            <span style={{fontSize:13,color:T.textMuted}}>הצג פרשת השבוע</span>
+            <button onClick={()=>setShowParasha(p=>!p)} style={{
+              width:42,height:24,borderRadius:12,border:"none",cursor:"pointer",position:"relative",
+              background:showParasha?S.purple:T.inputBorder,transition:"background 0.2s",
+            }}>
+              <div style={{position:"absolute",top:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"right 0.2s",right:showParasha?3:21}}/>
+            </button>
+          </div>
+
+          {/* Days */}
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             {days.map(({date,earnings,entry})=>{
               const isToday=getDayKey(date)===getDayKey(new Date());
@@ -548,6 +664,8 @@ export default function WorkHoursTracker() {
               const pct=earnings.totalMs/maxDayMs;
               const isExp=expandedDay===getDayKey(date);
               const hasPremium=earnings.premiumMs>0;
+              const hebrewDate=getHebrewDateStr(date);
+              const parasha=showParasha?getParasha(date):null;
               const holidayToday=JEWISH_HOLIDAYS_RAW.find(h=>{
                 const [ey,em,ed]=h.eve;
                 return ey===date.getFullYear()&&em===date.getMonth()+1&&ed===date.getDate();
@@ -560,14 +678,18 @@ export default function WorkHoursTracker() {
                     {earnings.totalMs>0&&<div style={{position:"absolute",right:0,top:0,bottom:0,width:`${pct*100}%`,background:hasPremium?"linear-gradient(90deg,transparent,rgba(167,139,250,0.08))":"linear-gradient(90deg,transparent,rgba(99,102,241,0.08))",pointerEvents:"none"}}/>}
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",position:"relative"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
-                        <div style={{width:34,height:34,borderRadius:9,background:isToday?S.purple:T.navBg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <div style={{width:34,height:34,borderRadius:9,background:isToday?S.purple:T.navBg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                           <span style={{fontSize:14,fontWeight:700,color:isToday?"#fff":isWeekend?T.textVeryFaint:T.textMuted}}>{date.getDate()}</span>
                         </div>
-                        <div style={{fontSize:13,color:isWeekend?T.textVeryFaint:T.textMuted,fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
-                          {DAY_NAMES[date.getDay()]}
-                          {isToday&&<span style={{color:S.purple,fontSize:10}}>היום</span>}
-                          {holidayToday&&<span style={{color:S.violet,fontSize:10}}>✦ {holidayToday.name}</span>}
-                          {!holidayToday&&hasPremium&&<span style={{color:S.violet,fontSize:10}}>✦</span>}
+                        <div>
+                          <div style={{fontSize:13,color:isWeekend?T.textVeryFaint:T.textMuted,fontWeight:500,display:"flex",alignItems:"center",gap:5}}>
+                            {DAY_NAMES[date.getDay()]}
+                            {isToday&&<span style={{color:S.purple,fontSize:10}}>היום</span>}
+                            {holidayToday&&<span style={{color:S.violet,fontSize:10}}>✦ {holidayToday.name}</span>}
+                            {!holidayToday&&hasPremium&&<span style={{color:S.violet,fontSize:10}}>✦</span>}
+                          </div>
+                          {hebrewDate&&<div style={{fontSize:10,color:T.textFaint,marginTop:1}}>{hebrewDate}</div>}
+                          {parasha&&<div style={{fontSize:10,color:S.violet,marginTop:1}}>פרשת {parasha}</div>}
                         </div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
