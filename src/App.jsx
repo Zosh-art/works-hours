@@ -41,6 +41,102 @@ const JEWISH_HOLIDAYS_RAW = [
 
 // ── Parasha list: [name, shabbat_date YYYY-MM-DD (Israel)] ───────────────────
 // Israel cycle 2024-2027
+// ── Hebcal API (hebcal.com) ──────────────────────────────────────────────────
+const hebcalCache = {};
+
+
+// ── Gematria helper (used by fetchHebrewDate above) ─────────────────────────
+const HEB_HUNDREDS = ["","ק","ר","ש","ת","תק","תר","תש","תת","תתק"];
+const HEB_TENS     = ["","י","כ","ל","מ","נ","ס","ע","פ","צ"];
+const HEB_UNITS    = ["","א","ב","ג","ד","ה","ו","ז","ח","ט"];
+function numToGematria(n) {
+  const h = Math.floor(n / 100);
+  const t = Math.floor((n % 100) / 10);
+  const u = n % 10;
+  let s = (HEB_HUNDREDS[h] || "") + (HEB_TENS[t] || "") + (HEB_UNITS[u] || "");
+  if (!s) return "";
+  if (s.length === 1) return s + "׳";
+  return s.slice(0, -1) + "״" + s.slice(-1);
+}
+
+const HEB_DAY_ARR = ["","א","ב","ג","ד","ה","ו","ז","ח","ט","י","יא","יב","יג","יד","טו","טז","יז","יח","יט","כ","כא","כב","כג","כד","כה","כו","כז","כח","כט","ל"];
+
+async function fetchHebcalMonth(year, month) {
+  const key = `${year}-${month}`;
+  if (hebcalCache[key]) return hebcalCache[key];
+  try {
+    // 1. Get parasha
+    const url = `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&nx=off&ss=off&mf=off&c=off&s=on&i=on&geo=il&year=${year}&month=${month}&lg=he&leyning=off`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const days = {};
+    for (const item of (json.items || [])) {
+      const dt = item.date?.slice(0, 10);
+      if (!dt || item.category !== "parashat") continue;
+      if (!days[dt]) days[dt] = {};
+      days[dt].parasha = item.hebrew;
+      // Assign to Friday too
+      const sat = new Date(dt + "T12:00:00");
+      const fri = new Date(sat); fri.setDate(sat.getDate() - 1);
+      const friKey = `${fri.getFullYear()}-${String(fri.getMonth()+1).padStart(2,"0")}-${String(fri.getDate()).padStart(2,"0")}`;
+      if (!days[friKey]) days[friKey] = {};
+      days[friKey].parasha = item.hebrew;
+    }
+    // 2. Get Hebrew date for 1st of month (for month name + year)
+    const hdUrl = `https://www.hebcal.com/converter?cfg=json&g2h=1&year=${year}&month=${month}&day=1&gs=off`;
+    const hdRes = await fetch(hdUrl);
+    const hdJson = await hdRes.json();
+    const hebrewMonth = hdJson.hmonth_name || "";
+    // 3. Build Hebrew date strings for every day using the converter data
+    // We know 1st day, increment from there
+    let hd = hdJson.hd || 1;
+    let hmonth = hdJson.hmonth_name || "";
+    let hmonth2 = hdJson.hmonth2_name || "";
+    let hy = hdJson.hy || 0;
+    const daysInGregMonth = new Date(year, month, 0).getDate();
+    for (let d = 1; d <= daysInGregMonth; d++) {
+      const gKey = `${year}-${String(month).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      // Fetch individual day Hebrew date (cached)
+      const dateObj = new Date(year, month-1, d);
+      // We'll fetch async per-day inside the component via fetchHebrewDate
+      if (!days[gKey]) days[gKey] = {};
+    }
+    const result = { hebrewMonth, days };
+    hebcalCache[key] = result;
+    return result;
+  } catch {
+    const r = { hebrewMonth: "", days: {} };
+    hebcalCache[key] = r;
+    return r;
+  }
+}
+
+// Fetch Hebrew date string for a specific date
+const hdateCache = {};
+async function fetchHebrewDate(date) {
+  const key = date.toISOString().slice(0, 10);
+  if (hdateCache[key] !== undefined) return hdateCache[key];
+  try {
+    const url = `https://www.hebcal.com/converter?cfg=json&g2h=1&year=${date.getFullYear()}&month=${date.getMonth()+1}&day=${date.getDate()}&gs=off`;
+    const res = await fetch(url);
+    const json = await res.json();
+    // json.hd = day number, json.hmonth_name = month name, json.hy = Hebrew year number
+    const dayNum = json.hd;
+    const monthName = json.hmonth_name || "";
+    const hyear = json.hy || 0;
+    const withinMil = hyear % 1000;
+    const yearStr = numToGematria(withinMil);
+    const HEB_DAY_LOCAL = ["","א","ב","ג","ד","ה","ו","ז","ח","ט","י","יא","יב","יג","יד","טו","טז","יז","יח","יט","כ","כא","כב","כג","כד","כה","כו","כז","כח","כט","ל"];
+    const dayStr = (HEB_DAY_LOCAL[dayNum] || String(dayNum)) + "׳";
+    const result = `${dayStr} ב${monthName} ה${yearStr}`;
+    hdateCache[key] = result;
+    return result;
+  } catch {
+    hdateCache[key] = "";
+    return "";
+  }
+}
+
 const PARASHA_LIST = [
   ["בראשית","2024-10-26"],["נח","2024-11-02"],["לך לך","2024-11-09"],
   ["וירא","2024-11-16"],["חיי שרה","2024-11-23"],["תולדות","2024-11-30"],
@@ -86,70 +182,7 @@ const PARASHA_LIST = [
   ["ויקהל","2027-04-17"],["פקודי","2027-04-24"],["ויקרא","2027-05-01"],
 ];
 
-// Returns parasha name for a given JS Date (Friday or Saturday)
-function getParasha(date) {
-  const d = new Date(date);
-  // Normalize to the Shabbat of that week
-  const day = d.getDay();
-  if (day === 5) d.setDate(d.getDate() + 1); // Friday → Saturday
-  else if (day !== 6) return null;            // only Fri/Sat
-  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const found = PARASHA_LIST.find(([,dt]) => dt === key);
-  return found ? found[0] : null;
-}
 
-// ── Hebrew date formatting ────────────────────────────────────────────────────
-const HEB_DAY = ["","א","ב","ג","ד","ה","ו","ז","ח","ט","י","יא","יב","יג","יד","טו","טז","יז","יח","יט","כ","כא","כב","כג","כד","כה","כו","כז","כח","כט","ל"];
-const HEB_HUNDREDS = ["","ק","ר","ש","ת","תק","תר","תש","תת","תתק"];
-const HEB_TENS    = ["","י","כ","ל","מ","נ","ס","ע","פ","צ"];
-const HEB_UNITS   = ["","א","ב","ג","ד","ה","ו","ז","ח","ט"];
-
-// Convert a number (within-millennium, e.g. 785) to gematria with geresh/gershayim
-function numToGematria(n) {
-  const h = Math.floor(n / 100);
-  const t = Math.floor((n % 100) / 10);
-  const u = n % 10;
-  let s = (HEB_HUNDREDS[h] || "") + (HEB_TENS[t] || "") + (HEB_UNITS[u] || "");
-  if (!s) return "";
-  if (s.length === 1) return s + "׳";
-  return s.slice(0, -1) + "״" + s.slice(-1);
-}
-
-function getHebrewDateStr(date) {
-  try {
-    const fmt = new Intl.DateTimeFormat("he-IL-u-ca-hebrew", {
-      day: "numeric", month: "long", year: "numeric"
-    });
-    const parts = fmt.formatToParts(date);
-    const monthPart = parts.find(p => p.type === "month")?.value || "";
-    const yearRaw   = parts.find(p => p.type === "year")?.value  || "";
-
-    // Day: get numeric value and convert to gematria
-    const dayNum = parseInt(
-      new Intl.DateTimeFormat("he-IL-u-ca-hebrew", { day: "numeric" }).format(date)
-    );
-    const dayStr = (HEB_DAY[dayNum] || String(dayNum)) + "׳";
-
-    // Year: Intl may return "5785" (number) or "ה׳תשפ״ה" (already gematria)
-    // If it contains only digits → convert ourselves
-    let yearStr;
-    if (/^\d+$/.test(yearRaw.trim())) {
-      // Pure number like "5786"
-      const fullYear = parseInt(yearRaw);
-      const withinMillennium = fullYear % 1000;
-      yearStr = "ה׳" + numToGematria(withinMillennium);
-    } else {
-      // Already in letter form — strip leading millennium prefix like "ה׳"
-      yearStr = yearRaw.replace(/^[א-ת]׳\s*/, "");
-      // If nothing left, re-add without prefix
-      if (!yearStr) yearStr = yearRaw;
-    }
-
-    return `${dayStr} ב${monthPart} ה${yearStr}`;
-  } catch {
-    return "";
-  }
-}
 
 const DARK_THEME = {
   bg:"#0F1117", cardBg:"#1A1D2E", cardBorder:"#252840",
@@ -490,9 +523,43 @@ export default function WorkHoursTracker() {
   const secDeg=now.getSeconds()*6, minDeg=now.getMinutes()*6+now.getSeconds()*0.1, hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
   const S = {card:{background:T.cardBg,borderRadius:16,border:`1px solid ${T.cardBorder}`},label:{fontSize:11,color:T.textFaint,marginTop:4},gold:"#F59E0B",purple:"#6366F1",green:"#22C55E",red:"#EF4444",violet:"#A78BFA"};
   const todayHoliday = getHolidayName(now.getTime());
-  const todayHebrewDate = getHebrewDateStr(now);
-  const todayParasha = getParasha(now);
+  const [todayHebrewDate, setTodayHebrewDate] = useState("");
+  const [todayParasha, setTodayParasha] = useState("");
+  const [hebcalDays, setHebcalDays] = useState({});       // { "YYYY-MM-DD": { parasha, hdate } }
+  const [hebrewMonthName, setHebrewMonthName] = useState(""); // for summary header
   const isFriOrSat = now.getDay()===5||now.getDay()===6;
+
+  // Fetch Hebrew date for today
+  useEffect(() => {
+    fetchHebrewDate(now).then(s => setTodayHebrewDate(s));
+  }, [now.toDateString()]);
+
+  // Fetch today parasha if Fri/Sat
+  useEffect(() => {
+    if (!isFriOrSat) { setTodayParasha(""); return; }
+    fetchHebcalMonth(now.getFullYear(), now.getMonth()+1).then(data => {
+      const key = now.toISOString().slice(0,10);
+      setTodayParasha(data.days[key]?.parasha || "");
+    });
+  }, [now.toDateString()]);
+
+  // Fetch Hebcal data + Hebrew dates for summary month
+  useEffect(() => {
+    fetchHebcalMonth(year, month+1).then(async data => {
+      setHebrewMonthName(data.hebrewMonth);
+      // Fetch Hebrew date for each day
+      const daysInMonth = new Date(year, month+1, 0).getDate();
+      const merged = { ...data.days };
+      await Promise.all(Array.from({length: daysInMonth}, async (_, i) => {
+        const d = new Date(year, month, i+1);
+        const key = `${year}-${String(month+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`;
+        const hdate = await fetchHebrewDate(d);
+        if (!merged[key]) merged[key] = {};
+        merged[key] = { ...merged[key], hdate };
+      }));
+      setHebcalDays(merged);
+    });
+  }, [year, month]);
 
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center"}}>
@@ -626,6 +693,7 @@ export default function WorkHoursTracker() {
               style={{background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textMuted,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>›</button>
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:22,fontWeight:700,color:T.textStrong}}>{MONTH_NAMES[month]} {year}</div>
+              {hebrewMonthName&&<div style={{fontSize:13,color:T.textFaint,marginTop:1}}>{hebrewMonthName}</div>}
               <div style={{fontSize:15,color:S.gold,fontWeight:700,marginTop:2}}>{formatMoney(monthTotals.total)}</div>
               {(year!==new Date().getFullYear()||month!==new Date().getMonth())&&(
                 <button onClick={()=>{const d=new Date();setSummaryMonth({year:d.getFullYear(),month:d.getMonth()});}}
@@ -664,8 +732,9 @@ export default function WorkHoursTracker() {
               const pct=earnings.totalMs/maxDayMs;
               const isExp=expandedDay===getDayKey(date);
               const hasPremium=earnings.premiumMs>0;
-              const hebrewDate=getHebrewDateStr(date);
-              const parasha=showParasha?getParasha(date):null;
+              const dateKey = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+              const hebrewDate = hebcalDays[dateKey]?.hdate || "";
+              const parasha = showParasha ? (hebcalDays[dateKey]?.parasha || null) : null;
               const holidayToday=JEWISH_HOLIDAYS_RAW.find(h=>{
                 const [ey,em,ed]=h.eve;
                 return ey===date.getFullYear()&&em===date.getMonth()+1&&ed===date.getDate();
