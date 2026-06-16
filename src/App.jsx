@@ -122,7 +122,15 @@ const PARASHA_LIST = [
   ["ויקהל","2027-04-17"],["פקודי","2027-04-24"],["ויקרא","2027-05-01"],
 ];
 
-
+function getParasha(date) {
+  const day = date.getDay();
+  if (day !== 5 && day !== 6) return null;
+  const sat = new Date(date);
+  if (day === 5) sat.setDate(sat.getDate() + 1);
+  const key = `${sat.getFullYear()}-${String(sat.getMonth()+1).padStart(2,"0")}-${String(sat.getDate()).padStart(2,"0")}`;
+  const found = PARASHA_LIST.find(([,dt]) => dt === key);
+  return found ? found[0] : null;
+}
 
 const DARK_THEME = {
   bg:"#0F1117", cardBg:"#1A1D2E", cardBorder:"#252840",
