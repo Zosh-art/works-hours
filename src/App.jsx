@@ -122,14 +122,32 @@ const PARASHA_LIST = [
   ["ויקהל","2027-04-17"],["פקודי","2027-04-24"],["ויקרא","2027-05-01"],
 ];
 
-function getParasha(date) {
-  const day = date.getDay();
-  if (day !== 5 && day !== 6) return null;
-  const sat = new Date(date);
-  if (day === 5) sat.setDate(sat.getDate() + 1);
-  const key = `${sat.getFullYear()}-${String(sat.getMonth()+1).padStart(2,"0")}-${String(sat.getDate()).padStart(2,"0")}`;
-  const found = PARASHA_LIST.find(([,dt]) => dt === key);
-  return found ? found[0] : null;
+// Parasha cache: key = "YYYY-MM-DD" (Saturday) → parasha name
+const parashaCache = {};
+
+async function fetchParasha(saturdayDate) {
+  const key = `${saturdayDate.getFullYear()}-${String(saturdayDate.getMonth()+1).padStart(2,"0")}-${String(saturdayDate.getDate()).padStart(2,"0")}`;
+  if (parashaCache[key] !== undefined) return parashaCache[key];
+  try {
+    const url = `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&mod=off&nx=off&year=${saturdayDate.getFullYear()}&month=${saturdayDate.getMonth()+1}&ss=off&mf=off&c=off&s=on&i=on&lg=he&geo=il&leyning=off`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const item = (json.items||[]).find(i => i.category==="parashat" && i.date?.slice(0,10)===key);
+    const result = item ? item.hebrew : "";
+    parashaCache[key] = result;
+    return result;
+  } catch {
+    parashaCache[key] = "";
+    return "";
+  }
+}
+
+function getSaturdayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  if (day === 6) return d;
+  if (day === 5) { d.setDate(d.getDate()+1); return d; }
+  return null;
 }
 
 const DARK_THEME = {
@@ -459,7 +477,31 @@ export default function WorkHoursTracker() {
   const todayHebrew = toHebrewDate(now);
   const todayHebrewDate = todayHebrew.full;
   const isFriOrSat = now.getDay()===5||now.getDay()===6;
-  const todayParasha = isFriOrSat ? getParasha(now) : "";
+  const [todayParasha, setTodayParasha] = useState("");
+  const [summaryParashas, setSummaryParashas] = useState({});
+
+  // Fetch today parasha
+  useEffect(() => {
+    if (!isFriOrSat) { setTodayParasha(""); return; }
+    const sat = getSaturdayOf(now);
+    if (sat) fetchParasha(sat).then(p => setTodayParasha(p));
+  }, [todayKey]);
+
+  // Fetch parashas for summary month
+  useEffect(() => {
+    const result = {};
+    const promises = [];
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(year, month, i);
+      const sat = getSaturdayOf(d);
+      if (sat) {
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        promises.push(fetchParasha(sat).then(p => { if (p) result[key] = p; }));
+      }
+    }
+    Promise.all(promises).then(() => setSummaryParashas({...result}));
+  }, [year, month]);
 
 
 
@@ -621,7 +663,8 @@ export default function WorkHoursTracker() {
               const hasPremium=earnings.premiumMs>0;
               const dateKey = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
               const { full: hebrewDate, monthStr: dayHebMonth } = toHebrewDate(date);
-              const parasha = getParasha(date);
+              const dayKey2 = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+              const parasha = summaryParashas[dayKey2] || null;
               const holidayToday=JEWISH_HOLIDAYS_RAW.find(h=>{
                 const [ey,em,ed]=h.eve;
                 return ey===date.getFullYear()&&em===date.getMonth()+1&&ed===date.getDate();
