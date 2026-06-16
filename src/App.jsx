@@ -3,7 +3,6 @@ import { useState, useEffect, useMemo } from "react";
 const STORAGE_KEY = "work_hours_data_v3";
 const WAGE_KEY = "hourly_rate_v1";
 const THEME_KEY = "app_theme_v1";
-const SHOW_PARASHA_KEY = "show_parasha_v1";
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
   { label: "52.19", value: 52.19 },
@@ -69,7 +68,7 @@ async function fetchHebcalMonth(year, month) {
     const url = `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&nx=off&ss=off&mf=off&c=off&s=on&i=on&geo=il&year=${year}&month=${month}&lg=he&leyning=off`;
     const res = await fetch(url);
     const json = await res.json();
-    console.log("Hebcal response:", json); 
+    console.log("Hebcal response:", json);
     const days = {};
     for (const item of (json.items || [])) {
       const dt = item.date?.slice(0, 10);
@@ -457,7 +456,6 @@ export default function WorkHoursTracker() {
   const [expandedDay, setExpandedDay] = useState(null);
   const [manualEntry, setManualEntry] = useState(null);
   const [showWage, setShowWage] = useState(false);
-  const [showParasha, setShowParasha] = useState(() => localStorage.getItem(SHOW_PARASHA_KEY) !== "0");
   const [hourlyRate, setHourlyRate] = useState(() => {
     const saved = parseFloat(localStorage.getItem(WAGE_KEY));
     return (!isNaN(saved) && saved > 0) ? saved : 52.19;
@@ -472,27 +470,13 @@ export default function WorkHoursTracker() {
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); } catch {} },[data]);
   useEffect(() => { try { localStorage.setItem(WAGE_KEY,String(hourlyRate)); } catch {} },[hourlyRate]);
   useEffect(() => { try { localStorage.setItem(THEME_KEY,theme); } catch {} },[theme]);
-  useEffect(() => { try { localStorage.setItem(SHOW_PARASHA_KEY, showParasha?"1":"0"); } catch {} },[showParasha]);
 
   const todayKey = getDayKey(now);
   const todayData = data[todayKey] || { sessions:[], active:null };
   const isCheckedIn = !!todayData.active;
   const todayEarnings = useMemo(() => calcEarnings(todayData.sessions,todayData.active,hourlyRate),[todayData,now,hourlyRate]);
 
-  const nextPremiumEvent = useMemo(() => {
-    const ts = now.getTime();
-    const candidates = [];
-    const fd = new Date(now); fd.setHours(0,0,0,0);
-    while (fd.getDay()!==5) fd.setDate(fd.getDate()+1);
-    const sw = getShabbatWindow(fd.getTime());
-    if (sw.start>ts) candidates.push({name:"שבת",start:sw.start});
-    for (const hw of HOLIDAY_WINDOWS) { if (hw.start>ts) candidates.push({name:hw.name,start:hw.start}); }
-    candidates.sort((a,b)=>a.start-b.start);
-    if (!candidates.length) return null;
-    const next = candidates[0];
-    const d = new Date(next.start);
-    return {name:next.name,label:`${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`};
-  },[now]);
+
 
   function handleCheckIn() {
     setData(prev=>{ const e=prev[todayKey]||{sessions:[],active:null}; if(e.active)return prev; return {...prev,[todayKey]:{...e,active:Date.now()}}; });
@@ -530,10 +514,11 @@ export default function WorkHoursTracker() {
   const [hebrewMonthName, setHebrewMonthName] = useState(""); // for summary header
   const isFriOrSat = now.getDay()===5||now.getDay()===6;
 
-  // Fetch Hebrew date for today
+  // Fetch Hebrew date for today (stable - only re-fetch when calendar date changes)
   useEffect(() => {
-    fetchHebrewDate(now).then(s => setTodayHebrewDate(s));
-  }, [now.toDateString()]);
+    const today = new Date();
+    fetchHebrewDate(today).then(s => setTodayHebrewDate(s));
+  }, [todayKey]);
 
   // Fetch today parasha if Fri/Sat
   useEffect(() => {
@@ -546,20 +531,28 @@ export default function WorkHoursTracker() {
 
   // Fetch Hebcal data + Hebrew dates for summary month
   useEffect(() => {
-    fetchHebcalMonth(year, month+1).then(async data => {
+    let cancelled = false;
+    async function load() {
+      const data = await fetchHebcalMonth(year, month+1);
+      if (cancelled) return;
       setHebrewMonthName(data.hebrewMonth);
-      // Fetch Hebrew date for each day
-      const daysInMonth = new Date(year, month+1, 0).getDate();
       const merged = { ...data.days };
-      await Promise.all(Array.from({length: daysInMonth}, async (_, i) => {
-        const d = new Date(year, month, i+1);
-        const key = `${year}-${String(month+1).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`;
+      setHebcalDays({ ...merged }); // show parasha immediately
+
+      // Fetch Hebrew date for each day sequentially to avoid rate limits
+      const daysInMonth = new Date(year, month+1, 0).getDate();
+      for (let i = 1; i <= daysInMonth; i++) {
+        if (cancelled) return;
+        const d = new Date(year, month, i);
+        const key = `${year}-${String(month+1).padStart(2,"0")}-${String(i).padStart(2,"0")}`;
         const hdate = await fetchHebrewDate(d);
-        if (!merged[key]) merged[key] = {};
-        merged[key] = { ...merged[key], hdate };
-      }));
-      setHebcalDays(merged);
-    });
+        if (cancelled) return;
+        merged[key] = { ...(merged[key]||{}), hdate };
+        setHebcalDays({ ...merged });
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, [year, month]);
 
   return (
@@ -617,7 +610,7 @@ export default function WorkHoursTracker() {
             </div>
             {todayHebrewDate&&<div style={{fontSize:13,color:T.textFaint,marginTop:3}}>{todayHebrewDate}</div>}
             {isFriOrSat&&todayParasha&&(
-              <div style={{fontSize:12,color:S.violet,marginTop:4,fontWeight:600}}>פרשת {todayParasha} ✦</div>
+              <div style={{fontSize:12,color:S.violet,marginTop:4,fontWeight:600}}>{todayParasha} ✦</div>
             )}
           </div>
 
@@ -635,12 +628,7 @@ export default function WorkHoursTracker() {
             ))}
           </div>
 
-          {nextPremiumEvent && (
-            <div style={{width:"100%",background:T.nextEventBg,borderRadius:10,padding:"10px 16px",border:`1px solid ${T.nextEventBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:13,color:T.textMuted}}>הבא: {nextPremiumEvent.name}</span>
-              <span style={{fontSize:13,fontWeight:700,color:S.violet}}>{nextPremiumEvent.label}</span>
-            </div>
-          )}
+
 
           <button onClick={isCheckedIn?handleCheckOut:handleCheckIn} style={{
             width:160,height:160,borderRadius:"50%",
@@ -693,8 +681,7 @@ export default function WorkHoursTracker() {
             <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
               style={{background:T.cardBg,border:`1px solid ${T.cardBorder}`,color:T.textMuted,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:18}}>›</button>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:22,fontWeight:700,color:T.textStrong}}>{MONTH_NAMES[month]} {year}</div>
-              {hebrewMonthName&&<div style={{fontSize:13,color:T.textFaint,marginTop:1}}>{hebrewMonthName}</div>}
+              <div style={{fontSize:22,fontWeight:700,color:T.textStrong}}>{MONTH_NAMES[month]} {year}{hebrewMonthName?<span style={{fontSize:15,color:T.textFaint,fontWeight:400,marginRight:8}}> · {hebrewMonthName}</span>:null}</div>
               <div style={{fontSize:15,color:S.gold,fontWeight:700,marginTop:2}}>{formatMoney(monthTotals.total)}</div>
               {(year!==new Date().getFullYear()||month!==new Date().getMonth())&&(
                 <button onClick={()=>{const d=new Date();setSummaryMonth({year:d.getFullYear(),month:d.getMonth()});}}
@@ -714,16 +701,7 @@ export default function WorkHoursTracker() {
             <div><div style={{fontSize:19,fontWeight:700,color:S.violet}}>{formatMoney(monthTotals.premiumEarnings)}</div><div style={S.label}>בונוס ×1.5</div></div>
           </div>
 
-          {/* Show parasha toggle */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"8px 12px",...S.card,borderRadius:10}}>
-            <span style={{fontSize:13,color:T.textMuted}}>הצג פרשת השבוע</span>
-            <button onClick={()=>setShowParasha(p=>!p)} style={{
-              width:42,height:24,borderRadius:12,border:"none",cursor:"pointer",position:"relative",
-              background:showParasha?S.purple:T.inputBorder,transition:"background 0.2s",
-            }}>
-              <div style={{position:"absolute",top:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"right 0.2s",right:showParasha?3:21}}/>
-            </button>
-          </div>
+
 
           {/* Days */}
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -735,7 +713,7 @@ export default function WorkHoursTracker() {
               const hasPremium=earnings.premiumMs>0;
               const dateKey = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
               const hebrewDate = hebcalDays[dateKey]?.hdate || "";
-              const parasha = showParasha ? (hebcalDays[dateKey]?.parasha || null) : null;
+              const parasha = hebcalDays[dateKey]?.parasha || null;
               const holidayToday=JEWISH_HOLIDAYS_RAW.find(h=>{
                 const [ey,em,ed]=h.eve;
                 return ey===date.getFullYear()&&em===date.getMonth()+1&&ed===date.getDate();
@@ -759,7 +737,7 @@ export default function WorkHoursTracker() {
                             {!holidayToday&&hasPremium&&<span style={{color:S.violet,fontSize:10}}>✦</span>}
                           </div>
                           {hebrewDate&&<div style={{fontSize:10,color:T.textFaint,marginTop:1}}>{hebrewDate}</div>}
-                          {parasha&&<div style={{fontSize:10,color:S.violet,marginTop:1}}>פרשת {parasha}</div>}
+                          {parasha&&<div style={{fontSize:10,color:S.violet,marginTop:1}}>{parasha}</div>}
                         </div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
