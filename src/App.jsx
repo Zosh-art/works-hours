@@ -69,6 +69,7 @@ async function fetchHebcalMonth(year, month) {
     const url = `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&nx=off&ss=off&mf=off&c=off&s=on&i=on&geo=il&year=${year}&month=${month}&lg=he&leyning=off`;
     const res = await fetch(url);
     const json = await res.json();
+    console.log("Hebcal response:", json); 
     const days = {};
     for (const item of (json.items || [])) {
       const dt = item.date?.slice(0, 10);
