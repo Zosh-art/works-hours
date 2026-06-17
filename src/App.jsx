@@ -450,6 +450,23 @@ export default function WorkHoursTracker() {
   function handleCheckOut() {
     setData(prev=>{ const e=prev[todayKey]; if(!e?.active)return prev; return {...prev,[todayKey]:{sessions:[...(e.sessions||[]),{start:e.active,end:Date.now()}],active:null}}; });
   }
+
+  // Handle PWA shortcut deep links: ?action=checkin / ?action=checkout / ?action=toggle
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get("action");
+      if (!action) return;
+      const entry = data[todayKey] || { sessions:[], active:null };
+      if (action === "checkin" && !entry.active) handleCheckIn();
+      else if (action === "checkout" && entry.active) handleCheckOut();
+      else if (action === "toggle") { entry.active ? handleCheckOut() : handleCheckIn(); }
+      // Clean the URL so refresh doesn't re-trigger
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleManualSave(date, sessions) {
     const key = getDayKey(date);
     setData(prev=>({...prev,[key]:{sessions,active:null}}));
@@ -474,11 +491,60 @@ export default function WorkHoursTracker() {
   const secDeg=now.getSeconds()*6, minDeg=now.getMinutes()*6+now.getSeconds()*0.1, hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
   const S = {card:{background:T.cardBg,borderRadius:16,border:`1px solid ${T.cardBorder}`},label:{fontSize:11,color:T.textFaint,marginTop:4},gold:"#F59E0B",purple:"#6366F1",green:"#22C55E",red:"#EF4444",violet:"#A78BFA"};
   const todayHoliday = getHolidayName(now.getTime());
+
+  // Month-to-date hours & estimated earnings (current calendar month, up through today)
+  const monthToDateHours = useMemo(() => {
+    const ty = now.getFullYear(), tm = now.getMonth(), td = now.getDate();
+    let totalMs = 0, total = 0;
+    for (let i = 1; i <= td; i++) {
+      const d = new Date(ty, tm, i);
+      const key = getDayKey(d);
+      const entry = data[key];
+      if (!entry) continue;
+      const isToday = i === td;
+      const earn = calcEarnings(entry.sessions, isToday ? entry.active : null, hourlyRate);
+      totalMs += earn.totalMs;
+      total += earn.total;
+    }
+    return { totalMs, total };
+  }, [data, now.getFullYear(), now.getMonth(), now.getDate(), hourlyRate]);
+
   const todayHebrew = toHebrewDate(now);
   const todayHebrewDate = todayHebrew.full;
   const isFriOrSat = now.getDay()===5||now.getDay()===6;
   const [todayParasha, setTodayParasha] = useState("");
   const [summaryParashas, setSummaryParashas] = useState({});
+  const [weather, setWeather] = useState([]);
+
+  // Fetch weather for Tel Aviv (next 2 days), once per day
+  useEffect(() => {
+    const WEATHER_ICONS = {0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",61:"🌧️",63:"🌧️",65:"🌧️",71:"🌨️",73:"🌨️",75:"❄️",80:"🌧️",81:"🌧️",82:"⛈️",95:"⛈️",96:"⛈️",99:"⛈️"};
+    async function loadWeather() {
+      try {
+        const url = "https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Asia%2FJerusalem&forecast_days=3";
+        const res = await fetch(url);
+        const json = await res.json();
+        const days = json.daily;
+        const labels = ["היום","מחר","מחרתיים"];
+        const result = days.time.slice(0,3).map((dt,i) => ({
+          label: labels[i],
+          high: Math.round(days.temperature_2m_max[i]),
+          low: Math.round(days.temperature_2m_min[i]),
+          icon: WEATHER_ICONS[days.weathercode[i]] || "🌡️",
+        })).slice(0,2); // next 2 days as requested (today + tomorrow), adjust if needed
+        setWeather(result.length ? days.time.slice(1,3).map((dt,i) => ({
+          label: labels[i+1],
+          high: Math.round(days.temperature_2m_max[i+1]),
+          low: Math.round(days.temperature_2m_min[i+1]),
+          icon: WEATHER_ICONS[days.weathercode[i+1]] || "🌡️",
+        })) : []);
+      } catch {
+        setWeather([]);
+      }
+    }
+    loadWeather();
+  }, [todayKey]);
+
 
   // Fetch today parasha
   useEffect(() => {
@@ -542,34 +608,51 @@ export default function WorkHoursTracker() {
         <div style={{width:"100%",maxWidth:480,padding:"22px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:20}}>
           {showPWA && <PWABanner onDismiss={()=>{setShowPWA(false);localStorage.setItem("pwa_dismissed","1");}} />}
 
-          <svg width="180" height="180" viewBox="0 0 200 200">
-            <circle cx="100" cy="100" r="96" fill="none" stroke={T.clockRing} strokeWidth="8"/>
-            <circle cx="100" cy="100" r="90" fill={T.clockFace}/>
-            {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*Math.PI/180; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={T.clockTick} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
-            <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*Math.PI/180)} y2={100+50*Math.sin((hourDeg-90)*Math.PI/180)} stroke={T.clockHour} strokeWidth="4" strokeLinecap="round"/>
-            <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*Math.PI/180)} y2={100+68*Math.sin((minDeg-90)*Math.PI/180)} stroke={T.clockMin} strokeWidth="2.5" strokeLinecap="round"/>
-            <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*Math.PI/180)} y2={100+72*Math.sin((secDeg-90)*Math.PI/180)} stroke={S.purple} strokeWidth="1.5" strokeLinecap="round"/>
-            <circle cx="100" cy="100" r="4" fill={S.purple}/>
-          </svg>
+          <div style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+            {/* Left: date, Hebrew date, parasha, weather */}
+            <div style={{textAlign:"right",flex:1}}>
+              <div style={{fontSize:30,fontWeight:300,letterSpacing:1,color:T.textStrong,fontVariantNumeric:"tabular-nums"}}>{formatClock(now)}</div>
+              <div style={{fontSize:14,color:T.textMuted,marginTop:3}}>
+                {DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
+                {todayHoliday&&<span style={{color:S.violet,marginRight:8}}>· {todayHoliday} ✦</span>}
+              </div>
+              {todayHebrewDate&&<div style={{fontSize:13,color:T.textFaint,marginTop:3}}>{todayHebrewDate}</div>}
+              {isFriOrSat&&todayParasha&&(
+                <div style={{fontSize:12,color:S.violet,marginTop:4,fontWeight:600}}>{todayParasha} ✦</div>
+              )}
 
-          <div style={{textAlign:"center"}}>
-            <div style={{fontSize:38,fontWeight:300,letterSpacing:2,color:T.textStrong,fontVariantNumeric:"tabular-nums"}}>{formatClock(now)}</div>
-            <div style={{fontSize:14,color:T.textMuted,marginTop:3}}>
-              {DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
-              {todayHoliday&&<span style={{color:S.violet,marginRight:8}}>· {todayHoliday} ✦</span>}
+              {weather.length>0 && (
+                <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:4}}>
+                  {weather.map((w,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6,fontSize:12,color:T.textMuted}}>
+                      <span>{w.label}</span>
+                      <span>{w.icon}</span>
+                      <span style={{fontWeight:700,color:T.textStrong}}>{w.high}°</span>
+                      <span style={{color:T.textFaint}}>{w.low}°</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {todayHebrewDate&&<div style={{fontSize:13,color:T.textFaint,marginTop:3}}>{todayHebrewDate}</div>}
-            {isFriOrSat&&todayParasha&&(
-              <div style={{fontSize:12,color:S.violet,marginTop:4,fontWeight:600}}>{todayParasha} ✦</div>
-            )}
+
+            {/* Right: analog clock */}
+            <svg width="140" height="140" viewBox="0 0 200 200" style={{flexShrink:0}}>
+              <circle cx="100" cy="100" r="96" fill="none" stroke={T.clockRing} strokeWidth="8"/>
+              <circle cx="100" cy="100" r="90" fill={T.clockFace}/>
+              {Array.from({length:12},(_,i)=>{ const a=(i*30-90)*Math.PI/180; return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={T.clockTick} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>; })}
+              <line x1="100" y1="100" x2={100+50*Math.cos((hourDeg-90)*Math.PI/180)} y2={100+50*Math.sin((hourDeg-90)*Math.PI/180)} stroke={T.clockHour} strokeWidth="4" strokeLinecap="round"/>
+              <line x1="100" y1="100" x2={100+68*Math.cos((minDeg-90)*Math.PI/180)} y2={100+68*Math.sin((minDeg-90)*Math.PI/180)} stroke={T.clockMin} strokeWidth="2.5" strokeLinecap="round"/>
+              <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*Math.PI/180)} y2={100+72*Math.sin((secDeg-90)*Math.PI/180)} stroke={S.purple} strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="100" cy="100" r="4" fill={S.purple}/>
+            </svg>
           </div>
 
           <div style={{...S.card,padding:"16px 12px",width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8}}>
             {[
               {val:formatTime(todayEarnings.totalMs),label:'סה"כ היום',color:isCheckedIn?S.green:"#E2E8F0"},
               {val:formatMoney(todayEarnings.total),label:"הרווחת היום",color:S.gold},
-              {val:formatTime(todayEarnings.premiumMs),label:"שעות ×1.5",color:todayEarnings.premiumMs>0?S.violet:"#334155"},
-              {val:formatMoney(todayEarnings.premiumEarnings),label:"בונוס",color:todayEarnings.premiumEarnings>0?S.gold:"#334155"},
+              {val:formatTime(monthToDateHours.totalMs),label:"שעות החודש",color:S.purple},
+              {val:formatMoney(monthToDateHours.total),label:"רווח משוער",color:S.gold},
             ].map((item,i)=>(
               <div key={i} style={{textAlign:"center"}}>
                 <div style={{fontSize:15,fontWeight:700,color:item.color,fontVariantNumeric:"tabular-nums"}}>{item.val}</div>
