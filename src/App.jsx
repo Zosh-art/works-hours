@@ -450,11 +450,10 @@ export default function WorkHoursTracker() {
                 return(
                   <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:6,fontSize:13}}>
                     <span style={{color:T.textSub}}>
-                      {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} → {s.live?<span style={{color:T.green}}>עכשיו</span>:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
+                      {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {s.live?<span style={{color:T.green}}>עכשיו</span>:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
                       {sp.premiumMs>0&&<span style={{color:T.violet,marginRight:6,fontSize:11}}>✦ {hol||"שבת"}</span>}
                     </span>
                     <div>
-                      <span style={{color:T.accent,fontWeight:700,marginLeft:10}}>{formatTime(s.end-s.start)}</span>
                       <span style={{color:T.gold,fontWeight:600}}>{formatMoney(earn)}</span>
                     </div>
                   </div>
@@ -469,11 +468,11 @@ export default function WorkHoursTracker() {
       {view==="summary"&&(
         <div style={{width:"100%",maxWidth:480,padding:"16px 20px"}}>
 
-          {/* Month nav — ← = חודש הבא (LTR forward), → = חודש קודם (LTR back) */}
+          {/* Month nav — RTL: right side = back, left side = forward */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            {/* Left arrow = forward in time (next month) */}
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
-              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
+            {/* Right side (RTL) arrow = back in time (previous month) */}
+            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
+              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>→</button>
 
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:700,color:T.text}}>
@@ -485,9 +484,9 @@ export default function WorkHoursTracker() {
               )}
             </div>
 
-            {/* Right arrow = back in time (prev month) */}
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
-              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>→</button>
+            {/* Left side (RTL) arrow = forward in time (next month) */}
+            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
+              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
           </div>
 
           {/* Month totals */}
