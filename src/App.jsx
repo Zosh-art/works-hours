@@ -551,7 +551,7 @@ export default function WorkHoursTracker() {
                         return(
                           <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:12}}>
                             <span style={{color:T.textSub}}>
-                              {s.live?"עכשיו":new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
+                              {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {s.live?"עכשיו":new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
                               {sp.premiumMs>0&&<span style={{color:T.violet,marginRight:4}}> ✦ {formatTime(sp.premiumMs)}</span>}
                             </span>
                             <span style={{color:T.gold,fontWeight:600}}>{formatMoney(earn)}</span>
