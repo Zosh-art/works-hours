@@ -468,11 +468,14 @@ export default function WorkHoursTracker() {
 
           {/* Month nav — ← = חודש הבא (LTR forward), → = חודש קודם (LTR back) */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            {/* Left arrow = forward in time (next month) */}
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
-              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
+            {/* כפתור שמאל = חודש קודם */}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
+                style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span style={{fontSize:10,color:T.textFaint}}>{MONTH_NAMES[new Date(year,month-1,1).getMonth()]}</span>
+            </div>
 
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:700,color:T.text}}>
@@ -484,11 +487,14 @@ export default function WorkHoursTracker() {
               )}
             </div>
 
-            {/* Right arrow = back in time (prev month) */}
-            <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
-              style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
+            {/* כפתור ימין = חודש הבא */}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <button onClick={()=>setSummaryMonth(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
+                style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:40,height:40,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+              <span style={{fontSize:10,color:T.textFaint}}>{MONTH_NAMES[new Date(year,month+1,1).getMonth()]}</span>
+            </div>
           </div>
 
           {/* Month totals */}
