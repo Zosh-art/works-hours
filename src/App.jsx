@@ -450,13 +450,10 @@ export default function WorkHoursTracker() {
                 return(
                   <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:6,fontSize:13}}>
                     <span style={{color:T.textSub}}>
-                      {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} → {s.live?<span style={{color:T.green}}>עכשיו</span>:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
+                      {new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {s.live?<span style={{color:T.green}}>עכשיו</span>:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}
                       {sp.premiumMs>0&&<span style={{color:T.violet,marginRight:6,fontSize:11}}>✦ {hol||"שבת"}</span>}
                     </span>
-                    <div>
-                      <span style={{color:T.accent,fontWeight:700,marginLeft:10}}>{formatTime(s.end-s.start)}</span>
-                      <span style={{color:T.gold,fontWeight:600}}>{formatMoney(earn)}</span>
-                    </div>
+                    <span style={{color:T.gold,fontWeight:600}}>{formatMoney(earn)}</span>
                   </div>
                 );
               })}
