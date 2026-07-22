@@ -55,7 +55,8 @@ function toHebrewDate(date){try{const parts=new Intl.DateTimeFormat("he-IL-u-ca-
 
 // ── Parasha ───────────────────────────────────────────────────────────────────
 const parashaCache={};
-async function fetchParasha(saturdayDate){const key=`${saturdayDate.getFullYear()}-${String(saturdayDate.getMonth()+1).padStart(2,"0")}-${String(saturdayDate.getDate()).padStart(2,"0")}`;if(parashaCache[key]!==undefined)return parashaCache[key];try{const url=`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&mod=off&nx=off&year=${saturdayDate.getFullYear()}&month=${saturdayDate.getMonth()+1}&ss=off&mf=off&c=off&s=on&i=on&lg=he&geo=il&leyning=off`;const res=await fetch(url);const json=await res.json();const item=(json.items||[]).find(i=>i.category==="parashat"&&i.date?.slice(0,10)===key);parashaCache[key]=item?item.hebrew:"";return parashaCache[key];}catch{parashaCache[key]="";return "";}}
+async function fetchParasha(saturdayDate){const key=`${saturdayDate.getFullYear()}-${String(saturdayDate.getMonth()+1).padStart(2,"0")}-${String(saturdayDate.getDate()).padStart(2,"0")}`;if(parashaCache[key]!==undefined)return parashaCache[key];try{const url=`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&mod=off&nx=off&year=${saturdayDate.getFullYear()}&month=${saturdayDate.getMonth()+1}&ss=on&mf=off&c=off&s=on&i=on&lg=he&geo=il&leyning=off`;const res=await fetch(url);const json=await res.json();const items=json.items||[];const item=items.find(i=>i.category==="parashat"&&i.date?.slice(0,10)===key);const specialItem=items.find(i=>i.category==="holiday"&&i.subcat==="specialShabbat"&&i.date?.slice(0,10)===key);const result={name:item?item.hebrew:"",special:specialItem?specialItem.hebrew:""};parashaCache[key]=result;return result;}catch{const result={name:"",special:""};parashaCache[key]=result;return result;}}
+function formatParashaLabel(p){if(!p||!p.name)return"";return p.special?`${p.name} (${p.special})`:p.name;}
 function getSaturdayOf(date){const d=new Date(date),day=d.getDay();if(day===6)return d;if(day===5){d.setDate(d.getDate()+1);return d;}return null;}
 
 // ── Theme tokens ──────────────────────────────────────────────────────────────
@@ -105,6 +106,35 @@ function formatClock(d){return d.toLocaleTimeString("he-IL",{hour:"2-digit",minu
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 
+// אם המשתמש נכנס ולא יצא, ותאריך היום התקדם, "סוגרים" את היום הישן ב-23:59:59.999
+// ופותחים כניסה חדשה ב-00:00:00 של כל יום שחלף, עד היום הנוכחי, שם הכניסה נשארת פתוחה
+function carryOverMidnight(prevData,todayKeyNow){
+  let changed=false;
+  const next={...prevData};
+  for(const key of Object.keys(prevData)){
+    const entry=prevData[key];
+    if(!entry?.active||key===todayKeyNow)continue;
+    const[y,m,d]=key.split("-").map(Number);
+    let cursorYear=y,cursorMonth=m,cursorDay=d;
+    let cursorKey=key;
+    let sessionStart=entry.active;
+    let sessions=entry.sessions?[...entry.sessions]:[];
+    while(cursorKey!==todayKeyNow){
+      const endOfDay=new Date(cursorYear,cursorMonth,cursorDay,23,59,59,999).getTime();
+      sessions.push({start:sessionStart,end:endOfDay});
+      next[cursorKey]={sessions,active:null};
+      const nd=new Date(cursorYear,cursorMonth,cursorDay+1);
+      cursorYear=nd.getFullYear();cursorMonth=nd.getMonth();cursorDay=nd.getDate();
+      cursorKey=getDayKey(nd);
+      sessionStart=new Date(cursorYear,cursorMonth,cursorDay,0,0,0,0).getTime();
+      sessions=next[cursorKey]?.sessions?[...next[cursorKey].sessions]:[];
+    }
+    next[cursorKey]={sessions,active:sessionStart};
+    changed=true;
+  }
+  return changed?next:prevData;
+}
+
 function calcEarnings(sessions,activeStart=null,hourlyRate=52.19){let regularMs=0,premiumMs=0;const all=[...(sessions||[])];if(activeStart)all.push({start:activeStart,end:Date.now()});for(const s of all){const sp=splitSession(s.start,s.end);regularMs+=sp.regularMs;premiumMs+=sp.premiumMs;}const re=(regularMs/3600000)*hourlyRate,pe=(premiumMs/3600000)*hourlyRate*PREMIUM_RATE;return{regularMs,premiumMs,totalMs:regularMs+premiumMs,regularEarnings:re,premiumEarnings:pe,total:re+pe};}
 
 // ── Chevron SVGs ──────────────────────────────────────────────────────────────
@@ -140,7 +170,7 @@ export default function WorkHoursTracker(){
   const[hourlyRate,setHourlyRate]=useState(()=>{const s=parseFloat(localStorage.getItem(WAGE_KEY));return(!isNaN(s)&&s>0)?s:52.19;});
   const[data,setData]=useState(()=>{try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):{};}catch{return{};}});
   const[summaryMonth,setSummaryMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
-  const[todayParasha,setTodayParasha]=useState("");
+  const[todayParasha,setTodayParasha]=useState(null);
   const[summaryParashas,setSummaryParashas]=useState({});
   const[weather,setWeather]=useState([]);
   const T=useMemo(()=>darkMode?THEMES.dark:THEMES.light,[darkMode]);
@@ -151,6 +181,9 @@ export default function WorkHoursTracker(){
   useEffect(()=>{try{localStorage.setItem(THEME_KEY,darkMode?"dark":"light");}catch{}},[darkMode]);
 
   const todayKey=getDayKey(now);
+
+  useEffect(()=>{setData(prev=>carryOverMidnight(prev,todayKey));},[todayKey]);
+
   const todayData=data[todayKey]||{sessions:[],active:null};
   const isCheckedIn=!!todayData.active;
   const todayEarnings=useMemo(()=>calcEarnings(todayData.sessions,todayData.active,hourlyRate),[todayData,now,hourlyRate]);
@@ -164,7 +197,7 @@ export default function WorkHoursTracker(){
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
   const todayHolidayInfo=useMemo(()=>getDayHolidayInfo(now),[todayKey]);
 
-  useEffect(()=>{if(!isFriOrSat){setTodayParasha("");return;}const sat=getSaturdayOf(now);if(sat)fetchParasha(sat).then(p=>setTodayParasha(p));},[todayKey]);
+  useEffect(()=>{if(!isFriOrSat){setTodayParasha(null);return;}const sat=getSaturdayOf(now);if(sat)fetchParasha(sat).then(p=>setTodayParasha(p));},[todayKey]);
   useEffect(()=>{const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",51:"🌦️",61:"🌧️",71:"🌨️",80:"🌧️",95:"⛈️"};async function load(){try{const url="https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Asia%2FJerusalem&forecast_days=3";const res=await fetch(url);const json=await res.json();const d=json.daily;setWeather(d.time.slice(1,3).map((dt,i)=>({label:["מחר","מחרתיים"][i],high:Math.round(d.temperature_2m_max[i+1]),low:Math.round(d.temperature_2m_min[i+1]),icon:WEATHER_ICONS[d.weathercode[i+1]]||"🌡️"})));}catch{setWeather([]);}}load();},[todayKey]);
 
   const{year,month}=summaryMonth;
@@ -173,7 +206,7 @@ export default function WorkHoursTracker(){
   const monthTotals=useMemo(()=>days.reduce((a,d)=>({totalMs:a.totalMs+d.earnings.totalMs,premiumMs:a.premiumMs+d.earnings.premiumMs,total:a.total+d.earnings.total,regularEarnings:a.regularEarnings+d.earnings.regularEarnings,premiumEarnings:a.premiumEarnings+d.earnings.premiumEarnings}),{totalMs:0,premiumMs:0,total:0,regularEarnings:0,premiumEarnings:0}),[days]);
   const maxDayMs=Math.max(...days.map(d=>d.earnings.totalMs),1);
 
-  useEffect(()=>{const result={};const promises=[];for(let i=1;i<=daysInMonth;i++){const d=new Date(year,month,i);const sat=getSaturdayOf(d);if(sat){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;promises.push(fetchParasha(sat).then(p=>{if(p)result[key]=p;}));}}Promise.all(promises).then(()=>setSummaryParashas({...result}));},[year,month]);
+  useEffect(()=>{const result={};const promises=[];for(let i=1;i<=daysInMonth;i++){const d=new Date(year,month,i);const sat=getSaturdayOf(d);if(sat){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;promises.push(fetchParasha(sat).then(p=>{if(p?.name)result[key]=p;}));}}Promise.all(promises).then(()=>setSummaryParashas({...result}));},[year,month]);
 
   const secDeg=now.getSeconds()*6,minDeg=now.getMinutes()*6+now.getSeconds()*0.1,hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
   const prevMonth=new Date(year,month-1,1), nextMonth=new Date(year,month+1,1);
@@ -200,7 +233,7 @@ export default function WorkHoursTracker(){
                 {todayHolidayInfo&&<span style={{color:T.violet,marginRight:6,fontWeight:600}}> · {todayHolidayInfo.label}</span>}
               </div>
               {todayHebrew.full&&<div style={{fontSize:12,color:T.textFaint,marginTop:2}}>{todayHebrew.full}</div>}
-              {isFriOrSat&&todayParasha&&<div style={{fontSize:12,color:T.violet,marginTop:3,fontWeight:600}}>{todayParasha} ✦</div>}
+              {isFriOrSat&&todayParasha?.name&&<div style={{fontSize:12,color:T.violet,marginTop:3,fontWeight:600}}>{formatParashaLabel(todayParasha)} ✦</div>}
               {weather.length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>{weather.map((w,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:T.textMuted}}><span>{w.label}</span><span>{w.icon}</span><span style={{fontWeight:700,color:T.text}}>{w.high}°</span><span style={{color:T.textFaint}}>{w.low}°</span></div>))}</div>)}
             </div>
             <svg width="130" height="130" viewBox="0 0 200 200" style={{flexShrink:0}}>
@@ -298,7 +331,7 @@ export default function WorkHoursTracker(){
                             {!holidayInfo&&hasPremium&&<span style={{color:T.violet,fontSize:10}}>✦</span>}
                           </div>
                           {hebrewDate.full&&<div style={{fontSize:10,color:T.textFaint,marginTop:1}}>{hebrewDate.full}</div>}
-                          {parasha&&<div style={{fontSize:10,color:T.violet,marginTop:1}}>{parasha}</div>}
+                          {parasha&&<div style={{fontSize:10,color:T.violet,marginTop:1}}>{formatParashaLabel(parasha)}</div>}
                         </div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
