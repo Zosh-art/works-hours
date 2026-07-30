@@ -129,7 +129,7 @@ function getSaturdayOf(date) { const d = new Date(date), day = d.getDay(); if (d
 } return null; }
 // ── Theme tokens (בהיר בלבד) ───────────────────────────────────────────────────
 const THEMES = {
-    light: { bg: "#F6F1E7", surface: "#FCFAF3", surface2: "#F0E9D8", surface3: "#E8DFC8", border: "#DED5C0", border2: "#C9BC9F", text: "#2A2620", textSub: "#5C5346", textMuted: "#847A68", textFaint: "#AFA48D", accent: "#A23B2E", accentLight: "#F3DCD6", gold: "#9C7A1E", green: "#2F5233", red: "#7A2A22", violet: "#3D3A6B", clockFace: "#FCFAF3", clockRing: "#DED5C0", clockTick: "#C9BC9F", clockHour: "#2A2620", clockMin: "#5C5346", todayBg: "#F0E9D8", todayBorder: "#A23B2E", expandedBg: "#F8F4EA", modalOverlay: "rgba(30,22,14,0.5)", navBg: "#FCFAF3", nightBg: "#212B3D", nightSurface: "#283449", nightInk: "#E9E4D8", nightInkSub: "#AEB4C4", nightRing: "#3B4863", moonGold: "#C9A227" },
+    light: { bg: "#F6F1E7", surface: "#FCFAF3", surface2: "#F0E9D8", surface3: "#E8DFC8", border: "#DED5C0", border2: "#C9BC9F", text: "#2A2620", textSub: "#5C5346", textMuted: "#847A68", textFaint: "#AFA48D", accent: "#A23B2E", accentLight: "#F3DCD6", gold: "#9C7A1E", green: "#2F5233", red: "#7A2A22", violet: "#3D3A6B", plum: "#95566A", plumLight: "#F2E2E3", clockFace: "#FCFAF3", clockRing: "#DED5C0", clockTick: "#C9BC9F", clockHour: "#2A2620", clockMin: "#5C5346", todayBg: "#F0E9D8", todayBorder: "#A23B2E", expandedBg: "#F8F4EA", modalOverlay: "rgba(30,22,14,0.5)", navBg: "#FCFAF3", nightBg: "#212B3D", nightSurface: "#283449", nightInk: "#E9E4D8", nightInkSub: "#AEB4C4", nightRing: "#3B4863", moonGold: "#C9A227" },
 };
 // ── Sunset (NOAA, Israel) ─────────────────────────────────────────────────────
 function getSunsetIL(year, month, day) { const lat = 31.7683, lon = 35.2137; function calcJD(y, mo, d) { if (mo <= 2) {
@@ -384,9 +384,9 @@ function JournalDayModal({ date, sessions, notes, parasha, specialShabbat, onAdd
           <div>
             <div style={{ fontWeight: 700, fontSize: 17, color: T.text }}>{DAY_NAMES[date.getDay()]} {date.getDate()} {MONTH_NAMES[date.getMonth()]}</div>
             <div style={{ fontSize: 12, color: T.textFaint, marginTop: 2 }}>{hebrewDate.full}</div>
-            {holidayInfo && <div style={{ fontSize: 12, color: T.violet, marginTop: 3, fontWeight: 600 }}>✦ {holidayInfo.label}</div>}
-            {!holidayInfo && specialShabbat && <div style={{ fontSize: 12, color: T.violet, marginTop: 3, fontWeight: 600 }}>✦ {specialShabbat}</div>}
-            {parasha && <div style={{ fontSize: 12, color: T.violet, marginTop: 3, fontWeight: 600 }}>{formatParashaLabel(parasha, specialShabbat || "")} ✦</div>}
+            {holidayInfo && <div style={{ fontSize: 12, color: T.plum, marginTop: 3, fontWeight: 600 }}>✦ {holidayInfo.label}</div>}
+            {!holidayInfo && specialShabbat && <div style={{ fontSize: 12, color: T.plum, marginTop: 3, fontWeight: 600 }}>✦ {specialShabbat}</div>}
+            {parasha && <div style={{ fontSize: 12, color: T.plum, marginTop: 3, fontWeight: 600 }}>{formatParashaLabel(parasha, specialShabbat || "")} ✦</div>}
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.textFaint, fontSize: 22, cursor: "pointer" }}>✕</button>
         </div>
@@ -825,11 +825,13 @@ export default function WorkHoursTracker() {
                 const hebrewDate = toHebrewDate(date);
                 const notesCount = (journalNotes[key] || []).length;
                 const worked = sessions.length > 0;
-                return (<div key={key} onClick={() => setJournalDay(date)} style={{ cursor: "pointer", borderRadius: 8, padding: "4px 2px", minHeight: 62, background: isToday ? T.todayBg : holidayInfo ? T.violet + "22" : T.surface, border: `1px solid ${isToday ? T.todayBorder : T.border}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, position: "relative" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: isToday ? T.accent : T.textSub }}>{date.getDate()}</span>
-                  {hebrewDate.dayStr && <span style={{ fontSize: 7, color: T.textFaint, lineHeight: 1.1 }}>{hebrewDate.dayStr}</span>}
-                  {(holidayInfo || specialShabbat) && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1 }}>{holidayInfo ? holidayInfo.label : specialShabbat}</span>}
-                  {parasha && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1, fontWeight: 700 }}>{parasha}</span>}
+                return (<div key={key} onClick={() => setJournalDay(date)} style={{ cursor: "pointer", borderRadius: 8, padding: "4px 2px", minHeight: 62, background: isToday ? T.todayBg : holidayInfo ? T.plumLight : T.surface, border: `1px solid ${isToday ? T.todayBorder : T.border}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, position: "relative" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isToday ? T.accent : T.textSub }}>{date.getDate()}</span>
+                    {hebrewDate.dayStr && <span style={{ fontSize: 7, color: T.textFaint, lineHeight: 1.1 }}>{hebrewDate.dayStr}</span>}
+                  </div>
+                  {(holidayInfo || specialShabbat) && <span style={{ fontSize: 7, color: T.plum, textAlign: "center", lineHeight: 1.1 }}>{holidayInfo ? holidayInfo.label : specialShabbat}</span>}
+                  {parasha && <span style={{ fontSize: 7, color: T.plum, textAlign: "center", lineHeight: 1.1, fontWeight: 700 }}>{parasha}</span>}
                   {worked && <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>{sessions.map((s, si) => (<span key={si} style={{ fontSize: 8, color: T.green, fontWeight: 700, textAlign: "center", lineHeight: 1.25 }}>{s.shiftLabel || classifySession(s.start, s.end)}</span>))}</div>}
                   {notesCount > 0 && <span style={{ position: "absolute", top: 3, left: 3, width: 5, height: 5, borderRadius: "50%", background: T.gold }}/>}
                 </div>);
