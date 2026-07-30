@@ -232,46 +232,30 @@ function calcEarnings(sessions, activeStart = null, hourlyRate = 52.19) { let re
     premiumMs += sp.premiumMs;
 } const re = (regularMs / 3600000) * hourlyRate, pe = (premiumMs / 3600000) * hourlyRate * PREMIUM_RATE; return { regularMs, premiumMs, totalMs: regularMs + premiumMs, regularEarnings: re, premiumEarnings: pe, total: re + pe }; }
 // ── סיווג משמרת ליומן (בוקר / צהריים / לילה / בצ / צל / בצל) ──────────────────
-const SHIFT_LABELS = { morning: "משמרת בוקר", afternoon: "משמרת צהריים", night: "משמרת לילה", bt: "בצ", tl: "צל", btl: "בצל" };
+const SHIFT_LABELS = { morning: "בוקר", afternoon: "צהריים", night: "לילה" };
 function classifySession(startTs, endTs) {
     if (!startTs || !endTs || endTs <= startTs)
         return "";
-    const dayStart = new Date(startTs);
-    dayStart.setHours(0, 0, 0, 0);
-    const base = dayStart.getTime(), H = 3600000;
-    const winMorning = [base + 5 * H, base + 14 * H];
-    const winAfternoon = [base + 14 * H, base + 20.5 * H];
-    const winNight = [base + 20 * H, base + 33 * H];
+    const H = 3600000;
+    let mo = 0, af = 0, ni = 0;
+    const first = new Date(startTs);
+    first.setHours(0, 0, 0, 0);
+    let dayStart = first.getTime();
     const ov = (w) => Math.max(0, Math.min(endTs, w[1]) - Math.max(startTs, w[0]));
-    const mo = ov(winMorning), af = ov(winAfternoon), ni = ov(winNight);
-    const THRESH = 45 * 60000;
-    const segs = [];
-    if (mo > THRESH)
-        segs.push("m");
-    if (af > THRESH)
-        segs.push("a");
-    if (ni > THRESH)
-        segs.push("n");
-    if (segs.length === 0) {
-        const max = Math.max(mo, af, ni);
-        if (max === mo)
-            return SHIFT_LABELS.morning;
-        if (max === af)
-            return SHIFT_LABELS.afternoon;
-        return SHIFT_LABELS.night;
+    while (dayStart < endTs) {
+        mo += ov([dayStart + 5 * H, dayStart + 14 * H]);
+        af += ov([dayStart + 14 * H, dayStart + 20 * H]);
+        ni += ov([dayStart + 20 * H, dayStart + 24 * H]) + ov([dayStart, dayStart + 5 * H]);
+        dayStart += 24 * H;
     }
-    const key = segs.join("");
-    if (key === "m")
-        return SHIFT_LABELS.morning;
-    if (key === "a")
-        return SHIFT_LABELS.afternoon;
-    if (key === "n")
+    const max = Math.max(mo, af, ni);
+    if (max <= 0)
+        return "";
+    if (max === ni)
         return SHIFT_LABELS.night;
-    if (key === "ma")
-        return SHIFT_LABELS.bt;
-    if (key === "an")
-        return SHIFT_LABELS.tl;
-    return SHIFT_LABELS.btl;
+    if (max === mo)
+        return SHIFT_LABELS.morning;
+    return SHIFT_LABELS.afternoon;
 }
 // ── Chevron SVGs ──────────────────────────────────────────────────────────────
 const ChevronRight = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
@@ -297,8 +281,9 @@ function WageModal({ currentRate, onSave, onClose, T }) {
         setCustomVal(""); }} style={{ padding: "14px 18px", borderRadius: 12, border: "none", cursor: "pointer", textAlign: "right", background: (p.value !== null ? selected === p.value : selected === null) ? T.accent : T.surface2, color: (p.value !== null ? selected === p.value : selected === null) ? "#fff" : T.textSub, fontWeight: 700, fontSize: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>{p.value ? `₪${p.label}` : p.label}</span>{(p.value !== null ? selected === p.value : selected === null) && <span>✓</span>}</button>))}</div>{selected === null && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, color: T.textFaint, marginBottom: 6 }}>הזן תעריף ידנית</div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: T.gold, fontWeight: 700, fontSize: 18 }}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e => setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{ flex: 1, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px", color: T.text, fontSize: 18, outline: "none" }}/></div></div>}<div style={{ display: "flex", gap: 10 }}><button onClick={onClose} style={{ flex: 1, padding: "12px", background: T.surface2, border: "none", borderRadius: 12, color: T.textSub, cursor: "pointer", fontWeight: 600, fontSize: 15 }}>ביטול</button><button onClick={handleSave} style={{ flex: 2, padding: "12px", background: T.accent, border: "none", borderRadius: 12, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 15 }}>שמור</button></div></div></div>);
 }
 // ── Journal Day Modal ────────────────────────────────────────────────────────
-function JournalDayModal({ date, entry, notes, parasha, specialShabbat, onAddNote, onDeleteNote, onClose, T }) {
+function JournalDayModal({ date, entry, notes, parasha, specialShabbat, onAddNote, onDeleteNote, onSetShiftOverride, onClose, T }) {
     const [text, setText] = useState("");
+    const [editingIdx, setEditingIdx] = useState(null);
     const hebrewDate = toHebrewDate(date);
     const holidayInfo = getDayHolidayInfo(date);
     const sessions = entry ? [...(entry.sessions || []), ...(entry.active ? [{ start: entry.active, end: Date.now(), live: true }] : [])] : [];
@@ -319,10 +304,23 @@ function JournalDayModal({ date, entry, notes, parasha, specialShabbat, onAddNot
 
         {sessions.length > 0 && (<div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 6, fontWeight: 600 }}>משמרות</div>
-            {sessions.map((s, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: T.surface2, borderRadius: 10, marginBottom: 6, fontSize: 13 }}>
-                <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>
-                <span style={{ color: T.accent, fontWeight: 600 }}>{classifySession(s.start, s.end)}</span>
-              </div>))}
+            {sessions.map((s, i) => {
+                const label = s.shiftLabel || classifySession(s.start, s.end);
+                const isEditing = editingIdx === i;
+                return (<div key={i} style={{ padding: "8px 12px", background: T.surface2, borderRadius: 10, marginBottom: 6, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ color: T.accent, fontWeight: 600 }}>{label}</span>
+                      {!s.live && <button onClick={() => setEditingIdx(isEditing ? null : i)} style={{ background: "none", border: "none", color: T.textFaint, cursor: "pointer", fontSize: 12, padding: 0 }}>✏️</button>}
+                    </div>
+                  </div>
+                  {isEditing && (<div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                      {["בוקר", "צהריים", "לילה"].map(opt => (<button key={opt} onClick={() => { onSetShiftOverride(i, opt); setEditingIdx(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: label === opt ? T.accent : T.surface, color: label === opt ? "#fff" : T.textSub }}>{opt}</button>))}
+                      <button onClick={() => { onSetShiftOverride(i, null); setEditingIdx(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px dashed ${T.border}`, cursor: "pointer", fontSize: 12, color: T.textFaint, background: "none" }}>אוטומטי</button>
+                    </div>)}
+                </div>);
+            })}
           </div>)}
 
         <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 6, fontWeight: 600 }}>הערות</div>
@@ -414,6 +412,23 @@ export default function WorkHoursTracker() {
     function handleManualSave(date, sessions) { const key = getDayKey(date); setData((prev) => ({ ...prev, [key]: { sessions, active: null } })); setManualEntry(null); }
     function handleAddNote(dateKey, text) { setJournalNotes((prev) => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), { id: Date.now(), text }] })); }
     function handleDeleteNote(dateKey, id) { setJournalNotes((prev) => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((n) => n.id !== id) })); }
+    function handleSetShiftOverride(dateKey, sessionIndex, label) {
+        setData((prev) => {
+            const entry = prev[dateKey];
+            if (!entry?.sessions?.[sessionIndex])
+                return prev;
+            const sessions = entry.sessions.map((s, i) => {
+                if (i !== sessionIndex)
+                    return s;
+                if (label === null) {
+                    const { shiftLabel, ...rest } = s;
+                    return rest;
+                }
+                return { ...s, shiftLabel: label };
+            });
+            return { ...prev, [dateKey]: { ...entry, sessions } };
+        });
+    }
     const isFriOrSat = now.getDay() === 5 || now.getDay() === 6;
     const todayHebrew = useMemo(() => toHebrewDate(now), [todayKey]);
     const todayHolidayInfo = useMemo(() => getDayHolidayInfo(now), [todayKey]);
@@ -465,7 +480,7 @@ export default function WorkHoursTracker() {
     return (<div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Segoe UI',system-ui,sans-serif", direction: "rtl", display: "flex", flexDirection: "column", alignItems: "center", paddingBottom: 80 }}>
       {manualEntry && <ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions => handleManualSave(manualEntry.date, sessions)} onClose={() => setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage && <WageModal currentRate={hourlyRate} onSave={rate => { setHourlyRate(rate); setShowWage(false); }} onClose={() => setShowWage(false)} T={T}/>}
-      {journalDay && (() => { const jk = getDayKey(journalDay); const isSat = journalDay.getDay() === 6; const jkFull = `${journalDay.getFullYear()}-${String(journalDay.getMonth() + 1).padStart(2, "0")}-${String(journalDay.getDate()).padStart(2, "0")}`; const specialShabbat = isSat ? getSpecialShabbat(journalDay) : ""; return (<JournalDayModal date={journalDay} entry={data[jk]} notes={journalNotes[jk]} parasha={isSat ? journalParashas[jkFull] : ""} specialShabbat={specialShabbat} onAddNote={text => handleAddNote(jk, text)} onDeleteNote={id => handleDeleteNote(jk, id)} onClose={() => setJournalDay(null)} T={T}/>); })()}
+      {journalDay && (() => { const jk = getDayKey(journalDay); const isSat = journalDay.getDay() === 6; const jkFull = `${journalDay.getFullYear()}-${String(journalDay.getMonth() + 1).padStart(2, "0")}-${String(journalDay.getDate()).padStart(2, "0")}`; const specialShabbat = isSat ? getSpecialShabbat(journalDay) : ""; return (<JournalDayModal date={journalDay} entry={data[jk]} notes={journalNotes[jk]} parasha={isSat ? journalParashas[jkFull] : ""} specialShabbat={specialShabbat} onAddNote={text => handleAddNote(jk, text)} onDeleteNote={id => handleDeleteNote(jk, id)} onSetShiftOverride={(idx, label) => handleSetShiftOverride(jk, idx, label)} onClose={() => setJournalDay(null)} T={T}/>); })()}
 
       {/* Top bar */}
       <div style={{ width: "100%", maxWidth: 480, padding: "18px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -633,7 +648,7 @@ export default function WorkHoursTracker() {
                   {hebrewDate.dayStr && <span style={{ fontSize: 7, color: T.textFaint, lineHeight: 1.1 }}>{hebrewDate.dayStr}</span>}
                   {(holidayInfo || specialShabbat) && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1 }}>{holidayInfo ? holidayInfo.label : specialShabbat}</span>}
                   {parasha && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1, fontWeight: 700 }}>{parasha}</span>}
-                  {worked && <span style={{ fontSize: 8, color: T.green, fontWeight: 700, textAlign: "center", lineHeight: 1.1 }}>{sessions.map(s => classifySession(s.start, s.end)).join(" ")}</span>}
+                  {worked && <span style={{ fontSize: 8, color: T.green, fontWeight: 700, textAlign: "center", lineHeight: 1.1 }}>{sessions.map(s => s.shiftLabel || classifySession(s.start, s.end)).join(" ")}</span>}
                   {notesCount > 0 && <span style={{ position: "absolute", top: 3, left: 3, width: 5, height: 5, borderRadius: "50%", background: T.gold }}/>}
                 </div>);
             })}
