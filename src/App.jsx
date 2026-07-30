@@ -233,8 +233,8 @@ function calcEarnings(sessions, activeStart = null, hourlyRate = 52.19) { let re
 } const re = (regularMs / 3600000) * hourlyRate, pe = (premiumMs / 3600000) * hourlyRate * PREMIUM_RATE; return { regularMs, premiumMs, totalMs: regularMs + premiumMs, regularEarnings: re, premiumEarnings: pe, total: re + pe }; }
 // ── שחזור משמרות לתצוגה ביומן: מאחד קטעים שנחתכו בחצות (ע"י carryOverMidnight)
 // חזרה למשמרת אחת, ומייחס אותה ליום שבו היא באמת התחילה ────────────────────────
-function isExactMidnight(ts, dateRef) { const d = new Date(dateRef); d.setHours(0, 0, 0, 0); return ts === d.getTime(); }
-function isExactEndOfDay(ts, dateRef) { const d = new Date(dateRef); d.setHours(23, 59, 59, 999); return ts === d.getTime(); }
+function isExactMidnight(ts, dateRef) { const d = new Date(ts); const ref = new Date(dateRef); return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate() && d.getHours() === 0 && d.getMinutes() === 0; }
+function isExactEndOfDay(ts, dateRef) { const d = new Date(ts); const ref = new Date(dateRef); return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate() && d.getHours() === 23 && d.getMinutes() === 59; }
 function getDisplaySessionsForDay(data, dateObj) {
     const dayKey = getDayKey(dateObj);
     const entry = data[dayKey];
@@ -341,10 +341,19 @@ function ManualEntryModal({ targetDate, existingSessions, onSave, onClose, hourl
     const [sessions, setSessions] = useState(existingSessions?.length ? existingSessions.map((s) => ({ startStr: new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }).replace(".", ":"), endStr: new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }).replace(".", ":") })) : [{ startStr: "09:00", endStr: "17:00" }]);
     function parseTime(ds, t) { const [h, m] = t.split(":").map(Number); if (isNaN(h) || isNaN(m))
         return null; const d = new Date(ds + "T00:00:00"); d.setHours(h, m, 0, 0); return d.getTime(); }
-    function handleSave() { const p = sessions.map(s => ({ start: parseTime(dateStr, s.startStr), end: parseTime(dateStr, s.endStr) })).filter(s => s.start && s.end && s.end > s.start); if (!p.length)
+    function parseRange(ds, startStr, endStr) { const start = parseTime(ds, startStr); let end = parseTime(ds, endStr); if (start != null && end != null && end <= start) {
+        const nd = new Date(ds + "T00:00:00");
+        nd.setDate(nd.getDate() + 1);
+        const [h, m] = endStr.split(":").map(Number);
+        nd.setHours(h, m, 0, 0);
+        end = nd.getTime();
+    } return { start, end }; }
+    function crossesMidnight(startStr, endStr) { const [sh, sm] = startStr.split(":").map(Number); const [eh, em] = endStr.split(":").map(Number); if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em))
+        return false; return (eh * 60 + em) <= (sh * 60 + sm); }
+    function handleSave() { const p = sessions.map(s => parseRange(dateStr, s.startStr, s.endStr)).filter(s => s.start && s.end && s.end > s.start); if (!p.length)
         return; onSave(p); }
-    const previewEarn = useMemo(() => { const p = sessions.map(s => ({ start: parseTime(dateStr, s.startStr), end: parseTime(dateStr, s.endStr) })).filter(s => s.start && s.end && s.end > s.start); return p.length ? calcEarnings(p, null, hourlyRate) : null; }, [sessions, hourlyRate]);
-    return (<div style={{ position: "fixed", inset: 0, background: T.modalOverlay, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}><div style={{ background: T.surface, borderRadius: 20, padding: 24, width: "100%", maxWidth: 380, border: `1px solid ${T.border}` }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><span style={{ fontWeight: 700, fontSize: 17, color: T.text }}>הזנה ידנית — {targetDate.getDate()} {MONTH_NAMES[targetDate.getMonth()]}</span><button onClick={onClose} style={{ background: "none", border: "none", color: T.textFaint, fontSize: 22, cursor: "pointer" }}>✕</button></div>{sessions.map((s, i) => (<div key={i} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}><div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.textFaint, marginBottom: 4 }}>כניסה</div><input type="time" value={s.startStr} onChange={e => setSessions(p => p.map((x, j) => j === i ? { ...x, startStr: e.target.value } : x))} style={{ width: "100%", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 16, outline: "none" }}/></div><div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.textFaint, marginBottom: 4 }}>יציאה</div><input type="time" value={s.endStr} onChange={e => setSessions(p => p.map((x, j) => j === i ? { ...x, endStr: e.target.value } : x))} style={{ width: "100%", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 16, outline: "none" }}/></div>{sessions.length > 1 && <button onClick={() => setSessions(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.red, fontSize: 20, cursor: "pointer", marginTop: 16 }}>✕</button>}</div>))}<button onClick={() => setSessions(p => [...p, { startStr: "09:00", endStr: "17:00" }])} style={{ width: "100%", padding: "9px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 10, color: T.textSub, cursor: "pointer", fontSize: 14, marginBottom: 14 }}>+ הוסף סשן נוסף</button>{previewEarn && <div style={{ background: T.surface2, borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" }}><span style={{ color: T.textMuted, fontSize: 13 }}>סה"כ: <span style={{ color: T.accent, fontWeight: 700 }}>{formatTime(previewEarn.totalMs)}</span></span><span style={{ color: T.gold, fontWeight: 700, fontSize: 15 }}>{formatMoney(previewEarn.total)}</span></div>}<div style={{ display: "flex", gap: 10 }}><button onClick={onClose} style={{ flex: 1, padding: "12px", background: T.surface2, border: "none", borderRadius: 12, color: T.textSub, cursor: "pointer", fontWeight: 600, fontSize: 15 }}>ביטול</button><button onClick={handleSave} style={{ flex: 2, padding: "12px", background: T.accent, border: "none", borderRadius: 12, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 15 }}>שמור</button></div></div></div>);
+    const previewEarn = useMemo(() => { const p = sessions.map(s => parseRange(dateStr, s.startStr, s.endStr)).filter(s => s.start && s.end && s.end > s.start); return p.length ? calcEarnings(p, null, hourlyRate) : null; }, [sessions, hourlyRate]);
+    return (<div style={{ position: "fixed", inset: 0, background: T.modalOverlay, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}><div style={{ background: T.surface, borderRadius: 20, padding: 24, width: "100%", maxWidth: 380, border: `1px solid ${T.border}` }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><span style={{ fontWeight: 700, fontSize: 17, color: T.text }}>הזנה ידנית — {targetDate.getDate()} {MONTH_NAMES[targetDate.getMonth()]}</span><button onClick={onClose} style={{ background: "none", border: "none", color: T.textFaint, fontSize: 22, cursor: "pointer" }}>✕</button></div>{sessions.map((s, i) => (<div key={i} style={{ marginBottom: 12 }}><div style={{ display: "flex", gap: 10, alignItems: "center" }}><div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.textFaint, marginBottom: 4 }}>כניסה</div><input type="time" value={s.startStr} onChange={e => setSessions(p => p.map((x, j) => j === i ? { ...x, startStr: e.target.value } : x))} style={{ width: "100%", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 16, outline: "none" }}/></div><div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.textFaint, marginBottom: 4 }}>יציאה</div><input type="time" value={s.endStr} onChange={e => setSessions(p => p.map((x, j) => j === i ? { ...x, endStr: e.target.value } : x))} style={{ width: "100%", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 16, outline: "none" }}/></div>{sessions.length > 1 && <button onClick={() => setSessions(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.red, fontSize: 20, cursor: "pointer", marginTop: 16 }}>✕</button>}</div>{crossesMidnight(s.startStr, s.endStr) && <div style={{ fontSize: 11, color: T.violet, marginTop: 4 }}>🌙 המשמרת נמשכת עד למחרת</div>}</div>))}<button onClick={() => setSessions(p => [...p, { startStr: "09:00", endStr: "17:00" }])} style={{ width: "100%", padding: "9px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 10, color: T.textSub, cursor: "pointer", fontSize: 14, marginBottom: 14 }}>+ הוסף סשן נוסף</button>{previewEarn && <div style={{ background: T.surface2, borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" }}><span style={{ color: T.textMuted, fontSize: 13 }}>סה"כ: <span style={{ color: T.accent, fontWeight: 700 }}>{formatTime(previewEarn.totalMs)}</span></span><span style={{ color: T.gold, fontWeight: 700, fontSize: 15 }}>{formatMoney(previewEarn.total)}</span></div>}<div style={{ display: "flex", gap: 10 }}><button onClick={onClose} style={{ flex: 1, padding: "12px", background: T.surface2, border: "none", borderRadius: 12, color: T.textSub, cursor: "pointer", fontWeight: 600, fontSize: 15 }}>ביטול</button><button onClick={handleSave} style={{ flex: 2, padding: "12px", background: T.accent, border: "none", borderRadius: 12, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 15 }}>שמור</button></div></div></div>);
 }
 function WageModal({ currentRate, onSave, onClose, T }) {
     const preset = WAGE_PRESETS.find(p => p.value === currentRate);
@@ -398,7 +407,7 @@ function JournalDayModal({ date, sessions, notes, parasha, specialShabbat, onAdd
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {mergeMode && !s.live && <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${T.accent}`, background: isSelected ? T.accent : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, flexShrink: 0 }}>{isSelected ? "✓" : ""}</span>}
-                      <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>
+                      <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{!s.live && new Date(s.start).toDateString() !== new Date(s.end).toDateString() && <span style={{ color: T.textFaint }}> ({new Date(s.end).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" })})</span>}</span>
                     </div>
                     {!mergeMode && (<div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ color: T.accent, fontWeight: 600 }}>{label}</span>
@@ -497,8 +506,53 @@ export default function WorkHoursTracker() {
     } return { totalMs, total }; }, [data, now.getFullYear(), now.getMonth(), now.getDate(), hourlyRate]);
     function handleCheckIn() { setData((prev) => { const e = prev[todayKey] || { sessions: [], active: null }; if (e.active)
         return prev; return { ...prev, [todayKey]: { ...e, active: Date.now() } }; }); }
-    function handleCheckOut() { setData((prev) => { const e = prev[todayKey]; if (!e?.active)
-        return prev; return { ...prev, [todayKey]: { sessions: [...(e.sessions || []), { start: e.active, end: Date.now() }], active: null } }; }); }
+    function handleCheckOut() {
+        setData((prev) => {
+            const e = prev[todayKey];
+            if (!e?.active)
+                return prev;
+            const checkoutTs = Date.now();
+            if (!isExactMidnight(e.active, now)) {
+                return { ...prev, [todayKey]: { sessions: [...(e.sessions || []), { start: e.active, end: checkoutTs }], active: null } };
+            }
+            // כניסה שהועברה מיום קודם (חצות) — נאתר את היום שבו המשמרת באמת התחילה ונאחד לרשומה אחת
+            const next = { ...prev };
+            let trueStart = e.active;
+            let trueStartDayKey = todayKey;
+            const daysToTrim = [];
+            let cursor = new Date(now);
+            cursor.setHours(0, 0, 0, 0);
+            for (let guard = 0; guard < 400; guard++) {
+                const prevDate = new Date(cursor);
+                prevDate.setDate(prevDate.getDate() - 1);
+                const prevKey = getDayKey(prevDate);
+                const prevEntry = prev[prevKey];
+                const prevRaw = prevEntry?.sessions || [];
+                const prevLast = prevRaw[prevRaw.length - 1];
+                if (prevLast && isExactEndOfDay(prevLast.end, prevDate)) {
+                    trueStart = prevLast.start;
+                    trueStartDayKey = prevKey;
+                    daysToTrim.push(prevKey);
+                    if (isExactMidnight(prevLast.start, prevDate)) {
+                        cursor = prevDate;
+                        continue;
+                    }
+                    break;
+                }
+                break;
+            }
+            for (const k of daysToTrim) {
+                const entry = next[k];
+                if (!entry)
+                    continue;
+                next[k] = { ...entry, sessions: (entry.sessions || []).slice(0, -1) };
+            }
+            const startEntry = next[trueStartDayKey] || { sessions: [], active: null };
+            next[trueStartDayKey] = { ...startEntry, sessions: [...(startEntry.sessions || []), { start: trueStart, end: checkoutTs }], active: trueStartDayKey === todayKey ? null : startEntry.active };
+            next[todayKey] = { ...next[todayKey], active: null };
+            return next;
+        });
+    }
     function handleManualSave(date, sessions) { const key = getDayKey(date); setData((prev) => ({ ...prev, [key]: { sessions, active: null } })); setManualEntry(null); }
     function handleAddNote(dateKey, text) { setJournalNotes((prev) => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), { id: Date.now(), text }] })); }
     function handleDeleteNote(dateKey, id) { setJournalNotes((prev) => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((n) => n.id !== id) })); }
@@ -757,7 +811,7 @@ export default function WorkHoursTracker() {
                   {hebrewDate.dayStr && <span style={{ fontSize: 7, color: T.textFaint, lineHeight: 1.1 }}>{hebrewDate.dayStr}</span>}
                   {(holidayInfo || specialShabbat) && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1 }}>{holidayInfo ? holidayInfo.label : specialShabbat}</span>}
                   {parasha && <span style={{ fontSize: 7, color: T.violet, textAlign: "center", lineHeight: 1.1, fontWeight: 700 }}>{parasha}</span>}
-                  {worked && <span style={{ fontSize: 8, color: T.green, fontWeight: 700, textAlign: "center", lineHeight: 1.1 }}>{sessions.map(s => s.shiftLabel || classifySession(s.start, s.end)).join(" ")}</span>}
+                  {worked && <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>{sessions.map((s, si) => (<span key={si} style={{ fontSize: 8, color: T.green, fontWeight: 700, textAlign: "center", lineHeight: 1.25 }}>{s.shiftLabel || classifySession(s.start, s.end)}</span>))}</div>}
                   {notesCount > 0 && <span style={{ position: "absolute", top: 3, left: 3, width: 5, height: 5, borderRadius: "50%", background: T.gold }}/>}
                 </div>);
             })}
