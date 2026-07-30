@@ -231,8 +231,64 @@ function calcEarnings(sessions, activeStart = null, hourlyRate = 52.19) { let re
     regularMs += sp.regularMs;
     premiumMs += sp.premiumMs;
 } const re = (regularMs / 3600000) * hourlyRate, pe = (premiumMs / 3600000) * hourlyRate * PREMIUM_RATE; return { regularMs, premiumMs, totalMs: regularMs + premiumMs, regularEarnings: re, premiumEarnings: pe, total: re + pe }; }
+// ── שחזור משמרות לתצוגה ביומן: מאחד קטעים שנחתכו בחצות (ע"י carryOverMidnight)
+// חזרה למשמרת אחת, ומייחס אותה ליום שבו היא באמת התחילה ────────────────────────
+function isExactMidnight(ts, dateRef) { const d = new Date(dateRef); d.setHours(0, 0, 0, 0); return ts === d.getTime(); }
+function isExactEndOfDay(ts, dateRef) { const d = new Date(dateRef); d.setHours(23, 59, 59, 999); return ts === d.getTime(); }
+function getDisplaySessionsForDay(data, dateObj) {
+    const dayKey = getDayKey(dateObj);
+    const entry = data[dayKey];
+    const prevDate = new Date(dateObj);
+    prevDate.setDate(prevDate.getDate() - 1);
+    const prevEntry = data[getDayKey(prevDate)];
+    const rawSessions = entry?.sessions || [];
+    const result = [];
+    for (const s of rawSessions) {
+        if (isExactMidnight(s.start, dateObj)) {
+            const prevRaw = prevEntry?.sessions || [];
+            const prevLast = prevRaw[prevRaw.length - 1];
+            if (prevLast && isExactEndOfDay(prevLast.end, prevDate))
+                continue; // כבר מוצג ביום הקודם
+        }
+        if (isExactEndOfDay(s.end, dateObj)) {
+            let mergedEnd = s.end, isLive = false;
+            const cursorDate = new Date(dateObj);
+            cursorDate.setDate(cursorDate.getDate() + 1);
+            for (let guard = 0; guard < 400; guard++) {
+                const cEntry = data[getDayKey(cursorDate)];
+                if (!cEntry)
+                    break;
+                const cRaw = cEntry.sessions || [];
+                const first = cRaw[0];
+                if (first && isExactMidnight(first.start, cursorDate)) {
+                    mergedEnd = first.end;
+                    if (isExactEndOfDay(first.end, cursorDate)) {
+                        cursorDate.setDate(cursorDate.getDate() + 1);
+                        continue;
+                    }
+                    break;
+                }
+                else if (cEntry.active && isExactMidnight(cEntry.active, cursorDate)) {
+                    mergedEnd = Date.now();
+                    isLive = true;
+                    break;
+                }
+                else
+                    break;
+            }
+            result.push({ start: s.start, end: mergedEnd, live: isLive, shiftLabel: s.shiftLabel });
+        }
+        else {
+            result.push({ start: s.start, end: s.end, live: false, shiftLabel: s.shiftLabel });
+        }
+    }
+    if (entry?.active && !isExactMidnight(entry.active, dateObj)) {
+        result.push({ start: entry.active, end: Date.now(), live: true });
+    }
+    return result;
+}
 // ── סיווג משמרת ליומן (בוקר / צהריים / לילה / בצ / צל / בצל) ──────────────────
-const SHIFT_LABELS = { morning: "בוקר", afternoon: "צהריים", night: "לילה" };
+const SHIFT_LABELS = { morning: "בוקר", afternoon: "צהריים", night: "לילה", bt: "בצ", tl: "צל", btl: "בצל" };
 function classifySession(startTs, endTs) {
     if (!startTs || !endTs || endTs <= startTs)
         return "";
@@ -248,14 +304,33 @@ function classifySession(startTs, endTs) {
         ni += ov([dayStart + 20 * H, dayStart + 24 * H]) + ov([dayStart, dayStart + 5 * H]);
         dayStart += 24 * H;
     }
-    const max = Math.max(mo, af, ni);
-    if (max <= 0)
-        return "";
-    if (max === ni)
-        return SHIFT_LABELS.night;
-    if (max === mo)
-        return SHIFT_LABELS.morning;
-    return SHIFT_LABELS.afternoon;
+    const THRESH = 45 * 60000;
+    const segs = [];
+    if (mo > THRESH)
+        segs.push("m");
+    if (af > THRESH)
+        segs.push("a");
+    if (ni > THRESH)
+        segs.push("n");
+    if (segs.length <= 1) {
+        const max = Math.max(mo, af, ni);
+        if (max <= 0)
+            return "";
+        if (max === ni)
+            return SHIFT_LABELS.night;
+        if (max === mo)
+            return SHIFT_LABELS.morning;
+        return SHIFT_LABELS.afternoon;
+    }
+    const key = segs.join("");
+    if (key === "ma")
+        return SHIFT_LABELS.bt;
+    if (key === "an")
+        return SHIFT_LABELS.tl;
+    if (key === "man")
+        return SHIFT_LABELS.btl;
+    // צירוף לא רציף (בוקר+לילה בלי צהריים) — נדיר, נבחר לפי הרוב
+    return mo >= ni ? SHIFT_LABELS.morning : SHIFT_LABELS.night;
 }
 // ── Chevron SVGs ──────────────────────────────────────────────────────────────
 const ChevronRight = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
@@ -281,14 +356,19 @@ function WageModal({ currentRate, onSave, onClose, T }) {
         setCustomVal(""); }} style={{ padding: "14px 18px", borderRadius: 12, border: "none", cursor: "pointer", textAlign: "right", background: (p.value !== null ? selected === p.value : selected === null) ? T.accent : T.surface2, color: (p.value !== null ? selected === p.value : selected === null) ? "#fff" : T.textSub, fontWeight: 700, fontSize: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>{p.value ? `₪${p.label}` : p.label}</span>{(p.value !== null ? selected === p.value : selected === null) && <span>✓</span>}</button>))}</div>{selected === null && <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, color: T.textFaint, marginBottom: 6 }}>הזן תעריף ידנית</div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: T.gold, fontWeight: 700, fontSize: 18 }}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e => setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{ flex: 1, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px", color: T.text, fontSize: 18, outline: "none" }}/></div></div>}<div style={{ display: "flex", gap: 10 }}><button onClick={onClose} style={{ flex: 1, padding: "12px", background: T.surface2, border: "none", borderRadius: 12, color: T.textSub, cursor: "pointer", fontWeight: 600, fontSize: 15 }}>ביטול</button><button onClick={handleSave} style={{ flex: 2, padding: "12px", background: T.accent, border: "none", borderRadius: 12, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 15 }}>שמור</button></div></div></div>);
 }
 // ── Journal Day Modal ────────────────────────────────────────────────────────
-function JournalDayModal({ date, entry, notes, parasha, specialShabbat, onAddNote, onDeleteNote, onSetShiftOverride, onClose, T }) {
+function JournalDayModal({ date, sessions, notes, parasha, specialShabbat, onAddNote, onDeleteNote, onSetShiftOverride, onMergeSessions, onClose, T }) {
     const [text, setText] = useState("");
-    const [editingIdx, setEditingIdx] = useState(null);
+    const [editingStart, setEditingStart] = useState(null);
+    const [mergeMode, setMergeMode] = useState(false);
+    const [selected, setSelected] = useState([]);
     const hebrewDate = toHebrewDate(date);
     const holidayInfo = getDayHolidayInfo(date);
-    const sessions = entry ? [...(entry.sessions || []), ...(entry.active ? [{ start: entry.active, end: Date.now(), live: true }] : [])] : [];
     function handleAdd() { if (!text.trim())
         return; onAddNote(text); setText(""); }
+    function toggleSelect(start) { setSelected(p => p.includes(start) ? p.filter(x => x !== start) : [...p, start]); }
+    function handleMergeConfirm() { if (selected.length >= 2)
+        onMergeSessions(selected); setSelected([]); setMergeMode(false); }
+    function cancelMerge() { setSelected([]); setMergeMode(false); }
     return (<div style={{ position: "fixed", inset: 0, background: T.modalOverlay, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
       <div style={{ background: T.surface, borderRadius: 20, padding: 24, width: "100%", maxWidth: 380, maxHeight: "80vh", overflowY: "auto", border: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
@@ -303,21 +383,31 @@ function JournalDayModal({ date, entry, notes, parasha, specialShabbat, onAddNot
         </div>
 
         {sessions.length > 0 && (<div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: T.textFaint, marginBottom: 6, fontWeight: 600 }}>משמרות</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontSize: 12, color: T.textFaint, fontWeight: 600 }}>משמרות</div>
+              {sessions.filter(s => !s.live).length >= 2 && (mergeMode ? (<div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={cancelMerge} style={{ background: "none", border: "none", color: T.textFaint, cursor: "pointer", fontSize: 11 }}>ביטול</button>
+                    <button onClick={handleMergeConfirm} disabled={selected.length < 2} style={{ background: selected.length >= 2 ? T.accent : T.surface2, border: "none", borderRadius: 8, padding: "3px 10px", color: selected.length >= 2 ? "#fff" : T.textFaint, cursor: selected.length >= 2 ? "pointer" : "default", fontSize: 11, fontWeight: 600 }}>מזג ({selected.length})</button>
+                  </div>) : (<button onClick={() => setMergeMode(true)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>איחוד משמרות</button>))}
+            </div>
             {sessions.map((s, i) => {
                 const label = s.shiftLabel || classifySession(s.start, s.end);
-                const isEditing = editingIdx === i;
-                return (<div key={i} style={{ padding: "8px 12px", background: T.surface2, borderRadius: 10, marginBottom: 6, fontSize: 13 }}>
+                const isEditing = editingStart === s.start;
+                const isSelected = selected.includes(s.start);
+                return (<div key={i} onClick={() => mergeMode && !s.live && toggleSelect(s.start)} style={{ padding: "8px 12px", background: isSelected ? T.accentLight : T.surface2, borderRadius: 10, marginBottom: 6, fontSize: 13, cursor: mergeMode && !s.live ? "pointer" : "default", border: isSelected ? `1px solid ${T.accent}` : "1px solid transparent" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: T.accent, fontWeight: 600 }}>{label}</span>
-                      {!s.live && <button onClick={() => setEditingIdx(isEditing ? null : i)} style={{ background: "none", border: "none", color: T.textFaint, cursor: "pointer", fontSize: 12, padding: 0 }}>✏️</button>}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {mergeMode && !s.live && <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${T.accent}`, background: isSelected ? T.accent : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, flexShrink: 0 }}>{isSelected ? "✓" : ""}</span>}
+                      <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>
                     </div>
+                    {!mergeMode && (<div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ color: T.accent, fontWeight: 600 }}>{label}</span>
+                      {!s.live && <button onClick={() => setEditingStart(isEditing ? null : s.start)} style={{ background: "none", border: "none", color: T.textFaint, cursor: "pointer", fontSize: 12, padding: 0 }}>✏️</button>}
+                    </div>)}
                   </div>
-                  {isEditing && (<div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                      {["בוקר", "צהריים", "לילה"].map(opt => (<button key={opt} onClick={() => { onSetShiftOverride(i, opt); setEditingIdx(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: label === opt ? T.accent : T.surface, color: label === opt ? "#fff" : T.textSub }}>{opt}</button>))}
-                      <button onClick={() => { onSetShiftOverride(i, null); setEditingIdx(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px dashed ${T.border}`, cursor: "pointer", fontSize: 12, color: T.textFaint, background: "none" }}>אוטומטי</button>
+                  {isEditing && !mergeMode && (<div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                      {["בוקר", "צהריים", "לילה"].map(opt => (<button key={opt} onClick={(e) => { e.stopPropagation(); onSetShiftOverride(s.start, opt); setEditingStart(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: label === opt ? T.accent : T.surface, color: label === opt ? "#fff" : T.textSub }}>{opt}</button>))}
+                      <button onClick={(e) => { e.stopPropagation(); onSetShiftOverride(s.start, null); setEditingStart(null); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px dashed ${T.border}`, cursor: "pointer", fontSize: 12, color: T.textFaint, background: "none" }}>אוטומטי</button>
                     </div>)}
                 </div>);
             })}
@@ -347,7 +437,7 @@ function BottomNav({ view, setView, onWage, hourlyRate, T }) {
     return (<div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: T.navBg, borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-around", padding: "6px 0 max(8px,env(safe-area-inset-bottom))", zIndex: 100 }}>{tabs.map(tab => { const isActive = ["clock", "summary", "journal"].includes(tab.id) ? view === tab.id : false; const color = isActive ? T.accent : T.textMuted; return (<button key={tab.id} onClick={() => { if (tab.id === "wage")
         onWage();
     else
-        setView(tab.id); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 10px", color, minWidth: 56 }}>{tab.icon}<span style={{ fontSize: 10, fontWeight: isActive ? 700 : 500 }}>{tab.label}</span>{tab.id === "wage" && <span style={{ fontSize: 9, color: T.gold, fontWeight: 700, marginTop: -1 }}>₪{hourlyRate.toFixed(2)}</span>}</button>); })}</div>);
+        setView(tab.id); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 10px", color, minWidth: 56 }}>{tab.icon}<span style={{ fontSize: 10, fontWeight: isActive ? 700 : 500 }}>{tab.label}</span></button>); })}</div>);
 }
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function WorkHoursTracker() {
@@ -412,20 +502,39 @@ export default function WorkHoursTracker() {
     function handleManualSave(date, sessions) { const key = getDayKey(date); setData((prev) => ({ ...prev, [key]: { sessions, active: null } })); setManualEntry(null); }
     function handleAddNote(dateKey, text) { setJournalNotes((prev) => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), { id: Date.now(), text }] })); }
     function handleDeleteNote(dateKey, id) { setJournalNotes((prev) => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((n) => n.id !== id) })); }
-    function handleSetShiftOverride(dateKey, sessionIndex, label) {
+    function handleSetShiftOverride(dateKey, sessionStart, label) {
         setData((prev) => {
             const entry = prev[dateKey];
-            if (!entry?.sessions?.[sessionIndex])
+            if (!entry?.sessions)
                 return prev;
-            const sessions = entry.sessions.map((s, i) => {
-                if (i !== sessionIndex)
+            let changed = false;
+            const sessions = entry.sessions.map((s) => {
+                if (s.start !== sessionStart)
                     return s;
+                changed = true;
                 if (label === null) {
                     const { shiftLabel, ...rest } = s;
                     return rest;
                 }
                 return { ...s, shiftLabel: label };
             });
+            if (!changed)
+                return prev;
+            return { ...prev, [dateKey]: { ...entry, sessions } };
+        });
+    }
+    function handleMergeSessions(dateKey, starts) {
+        setData((prev) => {
+            const entry = prev[dateKey];
+            if (!entry?.sessions)
+                return prev;
+            const startSet = new Set(starts);
+            const toMerge = entry.sessions.filter((s) => startSet.has(s.start));
+            if (toMerge.length < 2)
+                return prev;
+            const remaining = entry.sessions.filter((s) => !startSet.has(s.start));
+            const merged = { start: Math.min(...toMerge.map((s) => s.start)), end: Math.max(...toMerge.map((s) => s.end)) };
+            const sessions = [...remaining, merged].sort((a, b) => a.start - b.start);
             return { ...prev, [dateKey]: { ...entry, sessions } };
         });
     }
@@ -468,7 +577,7 @@ export default function WorkHoursTracker() {
     const { year: jYear, month: jMonth } = journalMonth;
     const jDaysInMonth = getDaysInMonth(jYear, jMonth);
     const jLeadingBlanks = new Date(jYear, jMonth, 1).getDay();
-    const jDays = useMemo(() => Array.from({ length: jDaysInMonth }, (_, i) => { const d = new Date(jYear, jMonth, i + 1), key = getDayKey(d), entry = data[key]; const sessions = entry ? [...(entry.sessions || []), ...(entry.active ? [{ start: entry.active, end: Date.now(), live: true }] : [])] : []; return { date: d, key, entry, sessions }; }), [data, jYear, jMonth, jDaysInMonth, now]);
+    const jDays = useMemo(() => Array.from({ length: jDaysInMonth }, (_, i) => { const d = new Date(jYear, jMonth, i + 1), key = getDayKey(d), entry = data[key]; const sessions = getDisplaySessionsForDay(data, d); return { date: d, key, entry, sessions }; }), [data, jYear, jMonth, jDaysInMonth, now]);
     useEffect(() => { const result = {}; const jobs = []; for (let i = 1; i <= jDaysInMonth; i++) {
         const d = new Date(jYear, jMonth, i);
         if (d.getDay() !== 6)
@@ -480,7 +589,7 @@ export default function WorkHoursTracker() {
     return (<div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Segoe UI',system-ui,sans-serif", direction: "rtl", display: "flex", flexDirection: "column", alignItems: "center", paddingBottom: 80 }}>
       {manualEntry && <ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions => handleManualSave(manualEntry.date, sessions)} onClose={() => setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage && <WageModal currentRate={hourlyRate} onSave={rate => { setHourlyRate(rate); setShowWage(false); }} onClose={() => setShowWage(false)} T={T}/>}
-      {journalDay && (() => { const jk = getDayKey(journalDay); const isSat = journalDay.getDay() === 6; const jkFull = `${journalDay.getFullYear()}-${String(journalDay.getMonth() + 1).padStart(2, "0")}-${String(journalDay.getDate()).padStart(2, "0")}`; const specialShabbat = isSat ? getSpecialShabbat(journalDay) : ""; return (<JournalDayModal date={journalDay} entry={data[jk]} notes={journalNotes[jk]} parasha={isSat ? journalParashas[jkFull] : ""} specialShabbat={specialShabbat} onAddNote={text => handleAddNote(jk, text)} onDeleteNote={id => handleDeleteNote(jk, id)} onSetShiftOverride={(idx, label) => handleSetShiftOverride(jk, idx, label)} onClose={() => setJournalDay(null)} T={T}/>); })()}
+      {journalDay && (() => { const jk = getDayKey(journalDay); const isSat = journalDay.getDay() === 6; const jkFull = `${journalDay.getFullYear()}-${String(journalDay.getMonth() + 1).padStart(2, "0")}-${String(journalDay.getDate()).padStart(2, "0")}`; const specialShabbat = isSat ? getSpecialShabbat(journalDay) : ""; return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data, journalDay)} notes={journalNotes[jk]} parasha={isSat ? journalParashas[jkFull] : ""} specialShabbat={specialShabbat} onAddNote={text => handleAddNote(jk, text)} onDeleteNote={id => handleDeleteNote(jk, id)} onSetShiftOverride={(start, label) => handleSetShiftOverride(jk, start, label)} onMergeSessions={starts => handleMergeSessions(jk, starts)} onClose={() => setJournalDay(null)} T={T}/>); })()}
 
       {/* Top bar */}
       <div style={{ width: "100%", maxWidth: 480, padding: "18px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -512,8 +621,8 @@ export default function WorkHoursTracker() {
             </svg>
           </div>
 
-          <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: "14px 10px", width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-            {[{ val: formatTime(todayEarnings.totalMs), label: 'סה"כ היום', color: isCheckedIn ? T.green : T.text }, { val: formatMoney(todayEarnings.total), label: "הרווחת היום", color: T.gold }, { val: formatTime(monthToDateHours.totalMs), label: "שעות החודש", color: T.accent }, { val: formatMoney(monthToDateHours.total), label: "רווח החודש", color: T.gold }].map((item, i) => (<div key={i} style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 700, color: item.color, fontVariantNumeric: "tabular-nums" }}>{item.val}</div><div style={{ fontSize: 9, color: T.textFaint, marginTop: 3 }}>{item.label}</div></div>))}
+          <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: "14px 10px", width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 6 }}>
+            {[{ val: formatTime(todayEarnings.totalMs), label: 'סה"כ היום', color: isCheckedIn ? T.green : T.text }, { val: formatMoney(todayEarnings.total), label: "הרווחת היום", color: T.gold }, { val: formatTime(monthToDateHours.totalMs), label: "שעות החודש", color: T.accent }, { val: formatMoney(monthToDateHours.total), label: "רווח החודש", color: T.gold }, { val: `₪${hourlyRate.toFixed(2)}`, label: "תעריף שעתי", color: T.violet }].map((item, i) => (<div key={i} style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 700, color: item.color, fontVariantNumeric: "tabular-nums" }}>{item.val}</div><div style={{ fontSize: 9, color: T.textFaint, marginTop: 3 }}>{item.label}</div></div>))}
           </div>
 
           <button onClick={isCheckedIn ? handleCheckOut : handleCheckIn} style={{ width: 155, height: 155, borderRadius: "50%", border: `3px solid ${isCheckedIn ? T.red : T.green}`, background: T.surface, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 7, boxShadow: isCheckedIn ? `0 0 32px ${T.red}55` : `0 0 32px ${T.green}55`, transition: "all 0.2s" }}>
