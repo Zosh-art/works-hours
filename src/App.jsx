@@ -129,7 +129,7 @@ function getSaturdayOf(date) { const d = new Date(date), day = d.getDay(); if (d
 } return null; }
 // ── Theme tokens (בהיר בלבד) ───────────────────────────────────────────────────
 const THEMES = {
-    light: { bg: "#FDF6EE", surface: "#FFFFFF", surface2: "#FFF0DC", surface3: "#FEE8CC", border: "#E8D4B8", border2: "#D4BB98", text: "#2C1A06", textSub: "#7A5230", textMuted: "#A07850", textFaint: "#C09870", accent: "#C8580A", accentLight: "#FDE8CC", gold: "#B87000", green: "#2A7A3A", red: "#B83020", violet: "#7040A0", clockFace: "#FFFBF5", clockRing: "#E8D4B8", clockTick: "#D4BB98", clockHour: "#2C1A06", clockMin: "#7A5230", todayBg: "#FFF0DC", todayBorder: "#C8580A", expandedBg: "#FFF8F0", modalOverlay: "rgba(60,20,0,0.45)", navBg: "#FFFFFF" },
+    light: { bg: "#F6F1E7", surface: "#FCFAF3", surface2: "#F0E9D8", surface3: "#E8DFC8", border: "#DED5C0", border2: "#C9BC9F", text: "#2A2620", textSub: "#5C5346", textMuted: "#847A68", textFaint: "#AFA48D", accent: "#A23B2E", accentLight: "#F3DCD6", gold: "#9C7A1E", green: "#2F5233", red: "#7A2A22", violet: "#3D3A6B", clockFace: "#FCFAF3", clockRing: "#DED5C0", clockTick: "#C9BC9F", clockHour: "#2A2620", clockMin: "#5C5346", todayBg: "#F0E9D8", todayBorder: "#A23B2E", expandedBg: "#F8F4EA", modalOverlay: "rgba(30,22,14,0.5)", navBg: "#FCFAF3", nightBg: "#212B3D", nightSurface: "#283449", nightInk: "#E9E4D8", nightInkSub: "#AEB4C4", nightRing: "#3B4863", moonGold: "#C9A227" },
 };
 // ── Sunset (NOAA, Israel) ─────────────────────────────────────────────────────
 function getSunsetIL(year, month, day) { const lat = 31.7683, lon = 35.2137; function calcJD(y, mo, d) { if (mo <= 2) {
@@ -435,6 +435,18 @@ function JournalDayModal({ date, sessions, notes, parasha, specialShabbat, onAdd
       </div>
     </div>);
 }
+// ── Stamp-style check-in/out button ──────────────────────────────────────────
+function StampButton({ isCheckedIn, onClick, sinceLabel, T }) {
+    const [pressed, setPressed] = useState(false);
+    function handleClick() { setPressed(true); onClick(); setTimeout(() => setPressed(false), 180); }
+    const color = isCheckedIn ? T.red : T.green;
+    return (<button onClick={handleClick} style={{ width: 155, height: 155, borderRadius: "50%", border: `3px solid ${color}`, background: T.surface, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 7, position: "relative", transform: pressed ? "scale(0.93)" : "scale(1)", transition: "transform 0.15s ease", boxShadow: `0 0 0 6px ${color}18` }}>
+      <span style={{ position: "absolute", inset: 8, borderRadius: "50%", border: `1px dashed ${color}66`, pointerEvents: "none" }}/>
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round">{isCheckedIn ? <rect x="6" y="6" width="12" height="12" rx="2"/> : <polygon points="5,3 19,12 5,21"/>}</svg>
+      <span style={{ fontSize: 19, fontWeight: 800, color }}>{isCheckedIn ? "יציאה" : "כניסה"}</span>
+      {sinceLabel && <span style={{ fontSize: 11, color: T.textFaint }}>מאז {sinceLabel}</span>}
+    </button>);
+}
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 function BottomNav({ view, setView, onWage, hourlyRate, T }) {
     const tabs = [
@@ -652,54 +664,61 @@ export default function WorkHoursTracker() {
       </div>
 
       {/* ── Clock view ── */}
-      {view === "clock" && (<div style={{ width: "100%", maxWidth: 480, padding: "18px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
-          <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+      {view === "clock" && (() => {
+            const heroNight = isInPremiumWindow(now.getTime()) || now.getHours() >= 20 || now.getHours() < 5;
+            const heroBg = heroNight ? T.nightSurface : T.surface;
+            const heroText = heroNight ? T.nightInk : T.text;
+            const heroSub = heroNight ? T.nightInkSub : T.textMuted;
+            const heroFaint = heroNight ? T.nightInkSub : T.textFaint;
+            const heroRing = heroNight ? T.nightRing : T.clockRing;
+            const heroTick = heroNight ? T.nightRing : T.clockTick;
+            const heroAccent = heroNight ? T.moonGold : T.accent;
+            return (<div style={{ width: "100%", maxWidth: 480, padding: "18px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
+          <div style={{ width: "100%", background: heroBg, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, transition: "background 0.6s ease" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 30, fontWeight: 300, letterSpacing: 1, color: T.text, fontVariantNumeric: "tabular-nums" }}>{formatClock(now)}</div>
-              <div style={{ fontSize: 13, color: T.textMuted, marginTop: 3 }}>
-                {DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]}
-                {todayHolidayInfo && <span style={{ color: T.violet, marginRight: 6, fontWeight: 600 }}> · {todayHolidayInfo.label}</span>}
+              <div style={{ fontSize: 32, fontWeight: 600, letterSpacing: 1, color: heroText, fontVariantNumeric: "tabular-nums", fontFamily: "'Courier New',ui-monospace,monospace" }}>{formatClock(now)}</div>
+              <div style={{ fontSize: 13, color: heroSub, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+                <span>{heroNight ? "🌙" : "☀️"}</span>
+                <span>{DAY_NAMES[now.getDay()]} · {now.getDate()} {MONTH_NAMES[now.getMonth()]}</span>
+                {todayHolidayInfo && <span style={{ color: heroAccent, fontWeight: 600 }}> · {todayHolidayInfo.label}</span>}
               </div>
-              {todayHebrew.full && <div style={{ fontSize: 12, color: T.textFaint, marginTop: 2 }}>{todayHebrew.full}</div>}
-              {isFriOrSat && todayParasha && <div style={{ fontSize: 12, color: T.violet, marginTop: 3, fontWeight: 600 }}>{formatParashaLabel(todayParasha, todaySpecialShabbat)} ✦</div>}
-              {weather.length > 0 && (<div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>{weather.map((w, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: T.textMuted }}><span>{w.label}</span><span>{w.icon}</span><span style={{ fontWeight: 700, color: T.text }}>{w.high}°</span><span style={{ color: T.textFaint }}>{w.low}°</span></div>))}</div>)}
+              {todayHebrew.full && <div style={{ fontSize: 12, color: heroFaint, marginTop: 2 }}>{todayHebrew.full}</div>}
+              {isFriOrSat && todayParasha && <div style={{ fontSize: 12, color: heroAccent, marginTop: 3, fontWeight: 600 }}>{formatParashaLabel(todayParasha, todaySpecialShabbat)} ✦</div>}
+              {weather.length > 0 && (<div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>{weather.map((w, i) => (<div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: heroSub }}><span>{w.label}</span><span>{w.icon}</span><span style={{ fontWeight: 700, color: heroText }}>{w.high}°</span><span style={{ color: heroFaint }}>{w.low}°</span></div>))}</div>)}
             </div>
-            <svg width="130" height="130" viewBox="0 0 200 200" style={{ flexShrink: 0 }}>
-              <circle cx="100" cy="100" r="96" fill="none" stroke={T.clockRing} strokeWidth="8"/>
-              <circle cx="100" cy="100" r="90" fill={T.clockFace}/>
-              {Array.from({ length: 12 }, (_, i) => { const a = (i * 30 - 90) * Math.PI / 180; return <line key={i} x1={100 + 75 * Math.cos(a)} y1={100 + 75 * Math.sin(a)} x2={100 + 83 * Math.cos(a)} y2={100 + 83 * Math.sin(a)} stroke={T.clockTick} strokeWidth={i % 3 === 0 ? 3 : 1.5} strokeLinecap="round"/>; })}
-              <line x1="100" y1="100" x2={100 + 50 * Math.cos((hourDeg - 90) * Math.PI / 180)} y2={100 + 50 * Math.sin((hourDeg - 90) * Math.PI / 180)} stroke={T.clockHour} strokeWidth="4" strokeLinecap="round"/>
-              <line x1="100" y1="100" x2={100 + 68 * Math.cos((minDeg - 90) * Math.PI / 180)} y2={100 + 68 * Math.sin((minDeg - 90) * Math.PI / 180)} stroke={T.clockMin} strokeWidth="2.5" strokeLinecap="round"/>
-              <line x1="100" y1="100" x2={100 + 72 * Math.cos((secDeg - 90) * Math.PI / 180)} y2={100 + 72 * Math.sin((secDeg - 90) * Math.PI / 180)} stroke={T.accent} strokeWidth="1.5" strokeLinecap="round"/>
-              <circle cx="100" cy="100" r="4" fill={T.accent}/>
+            <svg width="118" height="118" viewBox="0 0 200 200" style={{ flexShrink: 0 }}>
+              <circle cx="100" cy="100" r="96" fill="none" stroke={heroRing} strokeWidth="8"/>
+              <circle cx="100" cy="100" r="90" fill={heroBg}/>
+              {Array.from({ length: 12 }, (_, i) => { const a = (i * 30 - 90) * Math.PI / 180; return <line key={i} x1={100 + 75 * Math.cos(a)} y1={100 + 75 * Math.sin(a)} x2={100 + 83 * Math.cos(a)} y2={100 + 83 * Math.sin(a)} stroke={heroTick} strokeWidth={i % 3 === 0 ? 3 : 1.5} strokeLinecap="round"/>; })}
+              <line x1="100" y1="100" x2={100 + 50 * Math.cos((hourDeg - 90) * Math.PI / 180)} y2={100 + 50 * Math.sin((hourDeg - 90) * Math.PI / 180)} stroke={heroText} strokeWidth="4" strokeLinecap="round"/>
+              <line x1="100" y1="100" x2={100 + 68 * Math.cos((minDeg - 90) * Math.PI / 180)} y2={100 + 68 * Math.sin((minDeg - 90) * Math.PI / 180)} stroke={heroSub} strokeWidth="2.5" strokeLinecap="round"/>
+              <line x1="100" y1="100" x2={100 + 72 * Math.cos((secDeg - 90) * Math.PI / 180)} y2={100 + 72 * Math.sin((secDeg - 90) * Math.PI / 180)} stroke={heroAccent} strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="100" cy="100" r="4" fill={heroAccent}/>
             </svg>
           </div>
 
-          <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: "14px 10px", width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 6 }}>
-            {[{ val: formatTime(todayEarnings.totalMs), label: 'סה"כ היום', color: isCheckedIn ? T.green : T.text }, { val: formatMoney(todayEarnings.total), label: "הרווחת היום", color: T.gold }, { val: formatTime(monthToDateHours.totalMs), label: "שעות החודש", color: T.accent }, { val: formatMoney(monthToDateHours.total), label: "רווח החודש", color: T.gold }, { val: `₪${hourlyRate.toFixed(2)}`, label: "תעריף שעתי", color: T.violet }].map((item, i) => (<div key={i} style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 700, color: item.color, fontVariantNumeric: "tabular-nums" }}>{item.val}</div><div style={{ fontSize: 9, color: T.textFaint, marginTop: 3 }}>{item.label}</div></div>))}
+          <div style={{ background: T.surface, borderRadius: 16, border: `1px solid ${T.border}`, padding: "14px 10px", width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+            {[{ val: formatTime(todayEarnings.totalMs), label: 'סה"כ היום', color: isCheckedIn ? T.green : T.text }, { val: formatTime(monthToDateHours.totalMs), label: "שעות החודש", color: T.accent }, { val: formatMoney(monthToDateHours.total), label: "רווח החודש", color: T.gold }, { val: `₪${hourlyRate.toFixed(2)}`, label: "תעריף שעתי", color: T.violet }].map((item, i) => (<div key={i} style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 700, color: item.color, fontVariantNumeric: "tabular-nums" }}>{item.val}</div><div style={{ fontSize: 9, color: T.textFaint, marginTop: 3 }}>{item.label}</div></div>))}
           </div>
 
-          <button onClick={isCheckedIn ? handleCheckOut : handleCheckIn} style={{ width: 155, height: 155, borderRadius: "50%", border: `3px solid ${isCheckedIn ? T.red : T.green}`, background: T.surface, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 7, boxShadow: isCheckedIn ? `0 0 32px ${T.red}55` : `0 0 32px ${T.green}55`, transition: "all 0.2s" }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={isCheckedIn ? T.red : T.green} strokeWidth="2.5" strokeLinecap="round">{isCheckedIn ? <rect x="6" y="6" width="12" height="12" rx="2"/> : <polygon points="5,3 19,12 5,21"/>}</svg>
-            <span style={{ fontSize: 19, fontWeight: 800, color: isCheckedIn ? T.red : T.green }}>{isCheckedIn ? "יציאה" : "כניסה"}</span>
-            {isCheckedIn && <span style={{ fontSize: 11, color: T.textFaint }}>מאז {new Date(todayData.active).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>}
-          </button>
+          <StampButton isCheckedIn={isCheckedIn} onClick={isCheckedIn ? handleCheckOut : handleCheckIn} sinceLabel={isCheckedIn ? new Date(todayData.active).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : null} T={T}/>
 
           <button onClick={() => setManualEntry({ date: new Date() })} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 20px", color: T.textSub, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}><span>✏️</span> הזן שעות ידנית להיום</button>
 
           {(todayData.sessions?.length > 0 || todayData.active) && (<div style={{ width: "100%" }}>
               <div style={{ fontSize: 13, color: T.textFaint, marginBottom: 8, fontWeight: 600 }}>סשנים היום</div>
               {[...(todayData.sessions || []), ...(todayData.active ? [{ start: todayData.active, end: Date.now(), live: true }] : [])].map((s, i) => {
-                    const sp = splitSession(s.start, s.end);
-                    const earn = (sp.regularMs / 3600000) * hourlyRate + (sp.premiumMs / 3600000) * hourlyRate * PREMIUM_RATE;
-                    const hol = getHolidayName(s.start);
-                    return (<div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 6, fontSize: 13 }}>
+                        const sp = splitSession(s.start, s.end);
+                        const earn = (sp.regularMs / 3600000) * hourlyRate + (sp.premiumMs / 3600000) * hourlyRate * PREMIUM_RATE;
+                        const hol = getHolidayName(s.start);
+                        return (<div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 6, fontSize: 13 }}>
                   <span style={{ color: T.textSub }}>{new Date(s.start).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} ← {s.live ? <span style={{ color: T.green }}>עכשיו</span> : new Date(s.end).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{sp.premiumMs > 0 && <span style={{ color: T.violet, marginRight: 6, fontSize: 11 }}>✦ {hol || "שבת"}</span>}</span>
                   <span style={{ color: T.gold, fontWeight: 600 }}>{formatMoney(earn)}</span>
                 </div>);
-                })}
+                    })}
             </div>)}
-        </div>)}
+        </div>);
+        })()}
 
       {/* ── Summary view ── */}
       {view === "summary" && (<div style={{ width: "100%", maxWidth: 480, padding: "16px 20px" }}>
