@@ -509,7 +509,10 @@ export default function WorkHoursTracker(){
         if(action==="checkin"&&!entry.active){handleCheckIn();acted=true;}
         else if(action==="checkout"&&entry.active){handleCheckOut();acted=true;}
         else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();acted=true;}
-        if(acted)lastActionAt=now;
+        if(acted){
+          lastActionAt=now;
+          setTimeout(()=>{try{window.close();}catch{}},450);
+        }
       }catch{}
     }
     runAction();
