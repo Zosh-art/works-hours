@@ -309,7 +309,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
                   </div>
                   {isEditing&&!mergeMode&&(
                     <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                      {["בוקר","צהריים","לילה"].map(opt=>(
+                      {["בוקר","צהריים","לילה","בצ","צל","בצל"].map(opt=>(
                         <button key={opt} onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,opt);setEditingStart(null);}} style={{padding:"5px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:label===opt?T.accent:T.surface,color:label===opt?"#fff":T.textSub}}>{opt}</button>
                       ))}
                       <button onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,null);setEditingStart(null);}} style={{padding:"5px 10px",borderRadius:8,border:`1px dashed ${T.border}`,cursor:"pointer",fontSize:12,color:T.textFaint,background:"none"}}>אוטומטי</button>
@@ -465,6 +465,20 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:{...entry,sessions}};
     });
   }
+
+  // תמיכה בקיצור-דרך מהמסך הראשי: פתיחת ?action=checkin / checkout / toggle מבצעת פעולה מיידית
+  useEffect(()=>{
+    try{
+      const params=new URLSearchParams(window.location.search);
+      const action=params.get("action");
+      if(!action)return;
+      const entry=data[todayKey]||{sessions:[],active:null};
+      if(action==="checkin"&&!entry.active)handleCheckIn();
+      else if(action==="checkout"&&entry.active)handleCheckOut();
+      else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();}
+      window.history.replaceState({},"",window.location.pathname);
+    }catch{}
+  },[]);
 
   const isFriOrSat=now.getDay()===5||now.getDay()===6;
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
