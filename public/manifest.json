@@ -1,7 +1,7 @@
 {
-  "name": "מעקב שעות - כניסה/יציאה",
-  "short_name": "כניסה/יציאה",
-  "start_url": "/?action=toggle",
+  "name": "דוח שעות",
+  "short_name": "דוח שעות",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0F1117",
