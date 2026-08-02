@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 const STORAGE_KEY = "work_hours_data_v3";
 const WAGE_KEY = "hourly_rate_v1";
@@ -400,11 +400,6 @@ export default function WorkHoursTracker(){
   const todayKey=getDayKey(now);
   useEffect(()=>{setData((prev)=>carryOverMidnight(prev,todayKey));},[todayKey]);
 
-  const dataRef=useRef(data);
-  useEffect(()=>{dataRef.current=data;},[data]);
-  const todayKeyRef=useRef(todayKey);
-  useEffect(()=>{todayKeyRef.current=todayKey;},[todayKey]);
-
   const todayData=data[todayKey]||{sessions:[],active:null};
   const isCheckedIn=!!todayData.active;
   const todayEarnings=useMemo(()=>calcEarnings(todayData.sessions,todayData.active,hourlyRate),[todayData,now,hourlyRate]);
@@ -490,42 +485,6 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:{...entry,sessions}};
     });
   }
-
-  // תמיכה בקיצור-דרך מהמסך הראשי: פתיחת ?action=checkin / checkout / toggle מבצעת פעולה מיידית
-  // (בכוונה לא מנקים את הכתובת אחרי הפעולה, כדי שקיצור שנשמר עם ?action=... ימשיך לעבוד גם אחרי טעינה חוזרת)
-  // בנוסף מאזינים לחזרה לטאב (לא רק לטעינה ראשונית): באנדרואיד לחיצה על אייקון קיצור-דרך
-  // לפעמים רק "מעירה" את אותו טאב במקום לטעון אותו מחדש, אז חייבים להגיב גם לזה.
-  useEffect(()=>{
-    let lastActionAt=0;
-    function runAction(){
-      try{
-        const params=new URLSearchParams(window.location.search);
-        const action=params.get("action");
-        if(!action)return;
-        const now=Date.now();
-        if(now-lastActionAt<1500)return; // כמה אירועים (focus/pageshow/visibilitychange) יכולים לירות ביחד באותה טעינה — מתעלמים מכפילויות קרובות
-        const entry=dataRef.current[todayKeyRef.current]||{sessions:[],active:null};
-        let acted=false;
-        if(action==="checkin"&&!entry.active){handleCheckIn();acted=true;}
-        else if(action==="checkout"&&entry.active){handleCheckOut();acted=true;}
-        else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();acted=true;}
-        if(acted){
-          lastActionAt=now;
-          setTimeout(()=>{try{window.close();}catch{}},450);
-        }
-      }catch{}
-    }
-    runAction();
-    function onVisible(){if(document.visibilityState==="visible")runAction();}
-    document.addEventListener("visibilitychange",onVisible);
-    window.addEventListener("focus",runAction);
-    window.addEventListener("pageshow",runAction);
-    return ()=>{
-      document.removeEventListener("visibilitychange",onVisible);
-      window.removeEventListener("focus",runAction);
-      window.removeEventListener("pageshow",runAction);
-    };
-  },[]);
 
   const isFriOrSat=now.getDay()===5||now.getDay()===6;
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
