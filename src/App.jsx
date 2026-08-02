@@ -496,15 +496,20 @@ export default function WorkHoursTracker(){
   // בנוסף מאזינים לחזרה לטאב (לא רק לטעינה ראשונית): באנדרואיד לחיצה על אייקון קיצור-דרך
   // לפעמים רק "מעירה" את אותו טאב במקום לטעון אותו מחדש, אז חייבים להגיב גם לזה.
   useEffect(()=>{
+    let lastActionAt=0;
     function runAction(){
       try{
         const params=new URLSearchParams(window.location.search);
         const action=params.get("action");
         if(!action)return;
+        const now=Date.now();
+        if(now-lastActionAt<1500)return; // כמה אירועים (focus/pageshow/visibilitychange) יכולים לירות ביחד באותה טעינה — מתעלמים מכפילויות קרובות
         const entry=dataRef.current[todayKeyRef.current]||{sessions:[],active:null};
-        if(action==="checkin"&&!entry.active)handleCheckIn();
-        else if(action==="checkout"&&entry.active)handleCheckOut();
-        else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();}
+        let acted=false;
+        if(action==="checkin"&&!entry.active){handleCheckIn();acted=true;}
+        else if(action==="checkout"&&entry.active){handleCheckOut();acted=true;}
+        else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();acted=true;}
+        if(acted)lastActionAt=now;
       }catch{}
     }
     runAction();
