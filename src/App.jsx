@@ -487,6 +487,7 @@ export default function WorkHoursTracker(){
   }
 
   // תמיכה בקיצור-דרך מהמסך הראשי: פתיחת ?action=checkin / checkout / toggle מבצעת פעולה מיידית
+  // (בכוונה לא מנקים את הכתובת אחרי הפעולה, כדי שקיצור שנשמר עם ?action=... ימשיך לעבוד גם אחרי טעינה חוזרת)
   useEffect(()=>{
     try{
       const params=new URLSearchParams(window.location.search);
@@ -496,7 +497,6 @@ export default function WorkHoursTracker(){
       if(action==="checkin"&&!entry.active)handleCheckIn();
       else if(action==="checkout"&&entry.active)handleCheckOut();
       else if(action==="toggle"){entry.active?handleCheckOut():handleCheckIn();}
-      window.history.replaceState({},"",window.location.pathname);
     }catch{}
   },[]);
 
