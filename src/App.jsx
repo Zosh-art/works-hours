@@ -251,9 +251,10 @@ return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:
 function WageModal({currentRate,onSave,onClose,T}){const preset=WAGE_PRESETS.find(p=>p.value===currentRate);const[selected,setSelected]=useState(preset?preset.value:null);const[customVal,setCustomVal]=useState(preset?"":String(currentRate));function handleSave(){const rate=selected!==null?selected:parseFloat(customVal.replace(",","."));if(!rate||isNaN(rate)||rate<=0)return;onSave(rate);}
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:360,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>תעריף שעתי</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div><div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>{WAGE_PRESETS.map(p=>(<button key={p.label} onClick={()=>{setSelected(p.value);if(p.value)setCustomVal("");}} style={{padding:"14px 18px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"right",background:(p.value!==null?selected===p.value:selected===null)?T.accent:T.surface2,color:(p.value!==null?selected===p.value:selected===null)?"#fff":T.textSub,fontWeight:700,fontSize:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{p.value?`₪${p.label}`:p.label}</span>{(p.value!==null?selected===p.value:selected===null)&&<span>✓</span>}</button>))}</div>{selected===null&&<div style={{marginBottom:16}}><div style={{fontSize:12,color:T.textFaint,marginBottom:6}}>הזן תעריף ידנית</div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.gold,fontWeight:700,fontSize:18}}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e=>setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px",color:T.text,fontSize:18,outline:"none"}}/></div></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
 
-function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,onDeleteNote,onSetShiftOverride,onMergeSessions,onClose,T}){
+function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,onDeleteNote,onSetShiftOverride,onMergeSessions,onDeleteSession,onClose,T}){
   const[text,setText]=useState("");
   const[editingStart,setEditingStart]=useState(null);
+  const[confirmDeleteStart,setConfirmDeleteStart]=useState(null);
   const[mergeMode,setMergeMode]=useState(false);
   const[selected,setSelected]=useState([]);
   const hebrewDate=toHebrewDate(date);
@@ -305,8 +306,18 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
                     {!mergeMode&&(<div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{color:T.accent,fontWeight:600}}>{label}</span>
                       {!s.live&&<button onClick={()=>setEditingStart(isEditing?null:s.start)} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,padding:0}}>✏️</button>}
+                      {!s.live&&<button onClick={()=>setConfirmDeleteStart(confirmDeleteStart===s.start?null:s.start)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:12,padding:0}}>🗑️</button>}
                     </div>)}
                   </div>
+                  {confirmDeleteStart===s.start&&!mergeMode&&(
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:8,background:T.accentLight,borderRadius:8,padding:"6px 10px"}}>
+                      <span style={{fontSize:12,color:T.text}}>למחוק את המשמרת הזו?</span>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={(e)=>{e.stopPropagation();setConfirmDeleteStart(null);}} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,fontWeight:600}}>ביטול</button>
+                        <button onClick={(e)=>{e.stopPropagation();onDeleteSession(s.start);setConfirmDeleteStart(null);}} style={{background:T.red,border:"none",borderRadius:6,padding:"3px 10px",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>מחק</button>
+                      </div>
+                    </div>
+                  )}
                   {isEditing&&!mergeMode&&(
                     <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
                       {["בוקר","צהריים","לילה","בצ","צל","בצל"].map(opt=>(
@@ -465,6 +476,15 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:{...entry,sessions}};
     });
   }
+  function handleDeleteSession(dateKey,sessionStart){
+    setData((prev)=>{
+      const entry=prev[dateKey];
+      if(!entry?.sessions)return prev;
+      const sessions=entry.sessions.filter((s)=>s.start!==sessionStart);
+      if(sessions.length===entry.sessions.length)return prev;
+      return{...prev,[dateKey]:{...entry,sessions}};
+    });
+  }
 
   // תמיכה בקיצור-דרך מהמסך הראשי: פתיחת ?action=checkin / checkout / toggle מבצעת פעולה מיידית
   useEffect(()=>{
@@ -507,7 +527,7 @@ export default function WorkHoursTracker(){
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
-      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const specialShabbat=isSat?getSpecialShabbat(journalDay):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={isSat?journalParashas[jkFull]:""} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
+      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const specialShabbat=isSat?getSpecialShabbat(journalDay):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={isSat?journalParashas[jkFull]:""} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
 
       <div style={{width:"100%",maxWidth:480,padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
