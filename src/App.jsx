@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { auth, db } from "./firebase";
-import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
+import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updateProfile } from "firebase/auth";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 const PREMIUM_RATE = 1.5;
@@ -135,6 +135,7 @@ function getDayHolidayInfo(date) {
 function formatTime(ms){if(!ms||ms<=0)return"0:00";return`${Math.floor(ms/3600000)}:${String(Math.floor((ms%3600000)/60000)).padStart(2,"0")}`;}
 function formatMoney(n){return"₪"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
 function formatClock(d){return d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}
+function getGreeting(hour){if(hour>=5&&hour<12)return"בוקר טוב";if(hour>=12&&hour<17)return"צהריים טובים";if(hour>=17&&hour<21)return"ערב טוב";return"לילה טוב";}
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 
@@ -273,6 +274,29 @@ const ChevronLeft=()=><svg width="18" height="18" viewBox="0 0 24 24" fill="none
 
 function ManualEntryModal({targetDate,existingSessions,onSave,onClose,hourlyRate=52.19,T}){const dateStr=`${targetDate.getFullYear()}-${String(targetDate.getMonth()+1).padStart(2,"0")}-${String(targetDate.getDate()).padStart(2,"0")}`;const[sessions,setSessions]=useState(existingSessions?.length?existingSessions.map((s)=>({startStr:new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"}).replace(".",":"),endStr:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"}).replace(".",":")})):[{startStr:"09:00",endStr:"17:00"}]);function parseTime(ds,t){const[h,m]=t.split(":").map(Number);if(isNaN(h)||isNaN(m))return null;const d=new Date(ds+"T00:00:00");d.setHours(h,m,0,0);return d.getTime();}function parseRange(ds,startStr,endStr){const start=parseTime(ds,startStr);let end=parseTime(ds,endStr);if(start!=null&&end!=null&&end<=start){const nd=new Date(ds+"T00:00:00");nd.setDate(nd.getDate()+1);const[h,m]=endStr.split(":").map(Number);nd.setHours(h,m,0,0);end=nd.getTime();}return{start,end};}function crossesMidnight(startStr,endStr){const[sh,sm]=startStr.split(":").map(Number);const[eh,em]=endStr.split(":").map(Number);if(isNaN(sh)||isNaN(sm)||isNaN(eh)||isNaN(em))return false;return(eh*60+em)<=(sh*60+sm);}function handleSave(){const p=sessions.map(s=>parseRange(dateStr,s.startStr,s.endStr)).filter(s=>s.start&&s.end&&s.end>s.start);if(!p.length)return;onSave(p);}const previewEarn=useMemo(()=>{const p=sessions.map(s=>parseRange(dateStr,s.startStr,s.endStr)).filter(s=>s.start&&s.end&&s.end>s.start);return p.length?calcEarnings(p,null,hourlyRate):null;},[sessions,hourlyRate]);
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>הזנה ידנית — {targetDate.getDate()} {MONTH_NAMES[targetDate.getMonth()]}</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div>{sessions.map((s,i)=>(<div key={i} style={{marginBottom:12}}><div style={{display:"flex",gap:10,alignItems:"center"}}><div style={{flex:1}}><div style={{fontSize:11,color:T.textFaint,marginBottom:4}}>כניסה</div><input type="time" value={s.startStr} onChange={e=>setSessions(p=>p.map((x,j)=>j===i?{...x,startStr:e.target.value}:x))} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",color:T.text,fontSize:16,outline:"none"}}/></div><div style={{flex:1}}><div style={{fontSize:11,color:T.textFaint,marginBottom:4}}>יציאה</div><input type="time" value={s.endStr} onChange={e=>setSessions(p=>p.map((x,j)=>j===i?{...x,endStr:e.target.value}:x))} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",color:T.text,fontSize:16,outline:"none"}}/></div>{sessions.length>1&&<button onClick={()=>setSessions(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:T.red,fontSize:20,cursor:"pointer",marginTop:16}}>✕</button>}</div>{crossesMidnight(s.startStr,s.endStr)&&<div style={{fontSize:11,color:T.violet,marginTop:4}}>🌙 המשמרת נמשכת עד למחרת</div>}</div>))}<button onClick={()=>setSessions(p=>[...p,{startStr:"09:00",endStr:"17:00"}])} style={{width:"100%",padding:"9px",background:T.surface2,border:`1px dashed ${T.border}`,borderRadius:10,color:T.textSub,cursor:"pointer",fontSize:14,marginBottom:14}}>+ הוסף סשן נוסף</button>{previewEarn&&<div style={{background:T.surface2,borderRadius:10,padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between"}}><span style={{color:T.textMuted,fontSize:13}}>סה"כ: <span style={{color:T.accent,fontWeight:700}}>{formatTime(previewEarn.totalMs)}</span></span><span style={{color:T.gold,fontWeight:700,fontSize:15}}>{formatMoney(previewEarn.total)}</span></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
+
+function AskNameModal({onSubmit,onSkip,T}){
+  const[name,setName]=useState("");
+  const[busy,setBusy]=useState(false);
+  async function handleSubmit(){
+    if(!name.trim())return;
+    setBusy(true);
+    await onSubmit(name);
+    setBusy(false);
+  }
+  return(
+    <div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+      <div style={{background:T.surface,borderRadius:20,padding:28,width:"100%",maxWidth:340,border:`1px solid ${T.border}`,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:10}}>👋</div>
+        <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6}}>איך קוראים לך?</div>
+        <div style={{fontSize:13,color:T.textMuted,marginBottom:16,lineHeight:1.5}}>נשתמש בזה רק כדי לפנות אליך בשם, בברכה שמופיעה בדף הראשי</div>
+        <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="שם פרטי" onKeyDown={e=>e.key==="Enter"&&handleSubmit()} autoFocus style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:14,textAlign:"center"}}/>
+        <button onClick={handleSubmit} disabled={busy||!name.trim()} style={{width:"100%",padding:"13px",background:busy||!name.trim()?T.surface2:T.accent,border:"none",borderRadius:12,color:busy||!name.trim()?T.textFaint:"#fff",cursor:busy?"default":"pointer",fontWeight:700,fontSize:15,marginBottom:10}}>{busy?"רגע...":"שמור"}</button>
+        <button onClick={onSkip} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12}}>אולי אחר כך</button>
+      </div>
+    </div>
+  );
+}
 
 function RecoverOldDataModal({isPlain,onRecover,onDismiss,T}){
   const[pw,setPw]=useState("");
@@ -423,6 +447,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
 function AuthScreen({T}){
   const[mode,setMode]=useState("login"); // login | signup | reset
   const[email,setEmail]=useState("");
+  const[firstName,setFirstName]=useState("");
   const[pw,setPw]=useState("");
   const[pw2,setPw2]=useState("");
   const[busy,setBusy]=useState(false);
@@ -443,9 +468,11 @@ function AuthScreen({T}){
     setError("");setMsg("");setBusy(true);
     try{
       if(mode==="signup"){
+        if(!firstName.trim()){setError("נא להזין שם פרטי");setBusy(false);return;}
         if(pw.length<6){setError("הסיסמה חייבת להכיל לפחות 6 תווים");setBusy(false);return;}
         if(pw!==pw2){setError("הסיסמאות לא תואמות");setBusy(false);return;}
-        await createUserWithEmailAndPassword(auth,email.trim(),pw);
+        const cred=await createUserWithEmailAndPassword(auth,email.trim(),pw);
+        try{await updateProfile(cred.user,{displayName:firstName.trim()});}catch{}
       }else if(mode==="login"){
         await signInWithEmailAndPassword(auth,email.trim(),pw);
       }else if(mode==="reset"){
@@ -463,7 +490,8 @@ function AuthScreen({T}){
         <div style={{fontSize:19,fontWeight:800,color:T.text,marginBottom:6}}>{mode==="signup"?"יצירת חשבון":mode==="reset"?"איפוס סיסמה":"התחברות"}</div>
         <div style={{fontSize:13,color:T.textMuted,marginBottom:18,lineHeight:1.5}}>{mode==="signup"?"המידע שלך יישמר בענן, נגיש רק לך מכל מכשיר":mode==="reset"?"נשלח לך קישור לאיפוס הסיסמה במייל":"התחבר כדי לראות את השעות שלך"}</div>
         {mode==="signup"&&<div style={{background:T.surface2,borderRadius:10,padding:"10px 12px",marginBottom:16,fontSize:12,color:T.textMuted,lineHeight:1.6,textAlign:"right"}}>בפעם הראשונה: מזינים אימייל וסיסמה (לפחות 6 תווים) ולוחצים "צור חשבון". זה יוצר חשבון אישי ומאובטח — בכל פעם הבאה נכנסים עם אותם פרטים בדיוק דרך "התחברות". כל אימייל מקבל את המידע הפרטי שלו בלבד, ואפשר להתחבר מכמה מכשירים עם אותו חשבון.</div>}
-        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="אימייל" autoFocus style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:10,textAlign:"center"}}/>
+        {mode==="signup"&&<input type="text" value={firstName} onChange={e=>setFirstName(e.target.value)} placeholder="שם פרטי" style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:10,textAlign:"center"}}/>}
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="אימייל" autoFocus={mode!=="signup"} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:10,textAlign:"center"}}/>
         {mode!=="reset"&&<input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="סיסמה" onKeyDown={e=>e.key==="Enter"&&mode!=="signup"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:mode==="signup"?10:16,textAlign:"center"}}/>}
         {mode==="signup"&&<input type="password" value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="אימות סיסמה" onKeyDown={e=>e.key==="Enter"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:16,textAlign:"center"}}/>}
         {error&&<div style={{color:T.red,fontSize:13,marginBottom:12,fontWeight:600}}>{error}</div>}
@@ -484,15 +512,26 @@ function AuthScreen({T}){
 
 function StampButton({isCheckedIn,onClick,sinceLabel,T}){
   const[pressed,setPressed]=useState(false);
-  function handleClick(){setPressed(true);onClick();setTimeout(()=>setPressed(false),180);}
+  const[pulse,setPulse]=useState(false);
+  function handleClick(){
+    setPressed(true);setPulse(false);
+    onClick();
+    requestAnimationFrame(()=>setPulse(true));
+    setTimeout(()=>setPressed(false),180);
+    setTimeout(()=>setPulse(false),650);
+  }
   const color=isCheckedIn?T.red:T.green;
   return (
-    <button onClick={handleClick} style={{width:155,height:155,borderRadius:"50%",border:`3px solid ${color}`,background:T.surface,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:7,position:"relative",transform:pressed?"scale(0.93)":"scale(1)",transition:"transform 0.15s ease",boxShadow:`0 0 0 6px ${color}18`}}>
-      <span style={{position:"absolute",inset:8,borderRadius:"50%",border:`1px dashed ${color}66`,pointerEvents:"none"}}/>
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round">{isCheckedIn?<rect x="6" y="6" width="12" height="12" rx="2"/>:<polygon points="5,3 19,12 5,21"/>}</svg>
-      <span style={{fontSize:19,fontWeight:800,color}}>{isCheckedIn?"יציאה":"כניסה"}</span>
-      {sinceLabel&&<span style={{fontSize:11,color:T.textFaint}}>מאז {sinceLabel}</span>}
-    </button>
+    <div style={{position:"relative",width:155,height:155}}>
+      <style>{`@keyframes stampPulseRing{0%{transform:scale(1);opacity:0.6;}100%{transform:scale(1.32);opacity:0;}}`}</style>
+      {pulse&&<span style={{position:"absolute",inset:0,borderRadius:"50%",border:`3px solid ${color}`,animation:"stampPulseRing 0.6s ease-out",pointerEvents:"none"}}/>}
+      <button onClick={handleClick} style={{width:155,height:155,borderRadius:"50%",border:`3px solid ${color}`,background:T.surface,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:7,position:"relative",transform:pressed?"scale(0.93)":"scale(1)",transition:"transform 0.15s ease",boxShadow:`0 0 0 6px ${color}18`}}>
+        <span style={{position:"absolute",inset:8,borderRadius:"50%",border:`1px dashed ${color}66`,pointerEvents:"none"}}/>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round">{isCheckedIn?<rect x="6" y="6" width="12" height="12" rx="2"/>:<polygon points="5,3 19,12 5,21"/>}</svg>
+        <span style={{fontSize:19,fontWeight:800,color}}>{isCheckedIn?"יציאה":"כניסה"}</span>
+        {sinceLabel&&<span style={{fontSize:11,color:T.textFaint}}>מאז {sinceLabel}</span>}
+      </button>
+    </div>
   );
 }
 
@@ -526,6 +565,8 @@ export default function WorkHoursTracker(){
   const[summaryParashas,setSummaryParashas]=useState({});
   const[journalParashas,setJournalParashas]=useState({});
   const[weather,setWeather]=useState([]);
+  const[askedName,setAskedName]=useState(true);
+  const[showAskName,setShowAskName]=useState(false);
   const T=THEMES.light;
 
   useEffect(()=>{const link=document.createElement("link");link.rel="stylesheet";link.href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap";document.head.appendChild(link);return ()=>{document.head.removeChild(link);};},[]);
@@ -542,13 +583,30 @@ export default function WorkHoursTracker(){
       if(snap.exists()){
         const d=snap.data();
         setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});
+        setAskedName(!!d.askedName);
       }else{
         try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
+        setAskedName(false);
       }
       setDocLoaded(true);
     },()=>setDocLoaded(true));
     return unsub;
   },[user]);
+
+  // בקשה חד-פעמית לשם פרטי, למי שנרשם לפני שהוספנו את השדה הזה
+  useEffect(()=>{
+    if(user&&docLoaded&&!user.displayName&&!askedName)setShowAskName(true);
+  },[user,docLoaded,askedName]);
+  async function handleSetDisplayName(name){
+    try{await updateProfile(auth.currentUser,{displayName:name.trim()});}catch{}
+    setUser(prev=>prev?{...prev,displayName:name.trim()}:prev);
+    try{await setDoc(doc(db,"users",user.uid),{askedName:true},{merge:true});}catch{}
+    setShowAskName(false);
+  }
+  async function handleSkipAskName(){
+    try{await setDoc(doc(db,"users",user.uid),{askedName:true},{merge:true});}catch{}
+    setShowAskName(false);
+  }
 
   function handleLogout(){signOut(auth);}
 
@@ -694,7 +752,8 @@ export default function WorkHoursTracker(){
   if(user===null)return <AuthScreen T={T}/>;
 
   return (
-    <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+    <div style={{minHeight:"100vh",background:`radial-gradient(circle at 1px 1px, rgba(42,38,32,0.05) 1px, transparent 0) 0 0/16px 16px, ${T.bg}`,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+      {showAskName&&<AskNameModal onSubmit={handleSetDisplayName} onSkip={handleSkipAskName} T={T}/>}
       {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
@@ -718,10 +777,12 @@ export default function WorkHoursTracker(){
         const heroRing=heroNight?T.nightRing:T.clockRing;
         const heroTick=heroNight?T.nightRing:T.clockTick;
         const heroAccent=heroNight?T.moonGold:T.accent;
+        const displayName=user?.displayName||user?.email?.split("@")[0]||"";
         return (
         <div style={{width:"100%",maxWidth:480,padding:"18px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
           <div style={{width:"100%",background:heroCardBg,borderRadius:16,padding:"16px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 0.6s ease"}}>
             <div style={{flex:1}}>
+              {displayName&&<div style={{fontSize:13,fontWeight:700,color:heroAccent,marginBottom:2}}>{getGreeting(now.getHours())}, {displayName} 👋</div>}
               <div style={{fontSize:32,fontWeight:600,letterSpacing:1,color:heroText,fontVariantNumeric:"tabular-nums",fontFamily:"'Courier New',ui-monospace,monospace"}}>{formatClock(now)}</div>
               <div style={{fontSize:13,color:heroSub,marginTop:4,display:"flex",alignItems:"center",gap:5}}>
                 <span>{heroNight?"🌙":"☀️"}</span>
@@ -878,7 +939,8 @@ export default function WorkHoursTracker(){
               const dayKeyFull=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
               const parasha=date.getDay()===6?(journalParashas[dayKeyFull]||null):null;
               const hebrewDate=toHebrewDate(date);
-              const notesCount=(journalNotes[key]||[]).length;
+              const notes=journalNotes[key]||[];
+              const notesCount=notes.length;
               const worked=sessions.length>0;
               return (
                 <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:holidayInfo?T.plumLight:T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
@@ -891,13 +953,13 @@ export default function WorkHoursTracker(){
                   <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
                     {worked&&sessions.map((s,si)=>(<span key={si} style={{fontSize:10,color:T.sage,fontWeight:800,textAlign:"center",lineHeight:1.3}}>{s.shiftLabel||classifySession(s.start,s.end)}</span>))}
                   </div>
-                  {notesCount>0&&<span style={{position:"absolute",top:3,left:3,width:5,height:5,borderRadius:"50%",background:T.gold}}/>}
+                  {notesCount>0&&<div style={{width:"100%",background:T.accentLight,borderRadius:5,padding:"1px 4px",marginTop:2}}><div style={{fontSize:7,color:T.accent,fontWeight:600,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {notes[0].text}{notesCount>1?` +${notesCount-1}`:""}</div></div>}
                 </div>
               );
             })}
           </div>
 
-          <div style={{marginTop:16,fontSize:11,color:T.textFaint,textAlign:"center"}}>לחיצה על יום מציגה משמרות והערות, ומאפשרת להוסיף הערה ידנית</div>
+          <div style={{marginTop:16,fontSize:11,color:T.textFaint,textAlign:"center",lineHeight:1.6}}>היומן מתמלא אוטומטית לפי המשמרות שנרשמו בטאב "סיכום" (כניסה/יציאה או הזנה ידנית) — אין צורך להזין כאן שוב. לחיצה על יום מציגה את המשמרות והערות, ומאפשרת להוסיף הערה ידנית או לערוך את הסיווג</div>
           <div style={{height:16}}/>
         </div>
       )}
@@ -910,7 +972,7 @@ export default function WorkHoursTracker(){
             {title:"🏠 ראשי",body:"השעון הגדול באמצע — לחיצה על הכפתור העגול מתחילה משמרת (\"כניסה\"), ולחיצה נוספת מסיימת אותה (\"יציאה\"). למעלה מוצגות שעות היום והחודש עד כה. כשנמצאים בשבת/חג או בשעות לילה, הכרטיס העליון משנה מראה (רקע כהה וסמל ירח) כדי לסמן שהשעות האלה מזכות בתוספת."},
             {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך."},
             {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
-            {title:"📅 יומן",body:"לוח חודשי עם התאריך העברי, פרשת השבוע (מוצגת רק בשבתות), וחגים. כל משמרת מסווגת אוטומטית לבוקר/צהריים/לילה. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד כמה משמרות לאחת, או למחוק משמרת שגויה."},
+            {title:"📅 יומן",body:"לוח חודשי שמתמלא אוטומטית לפי המשמרות שנרשמו בטאב \"סיכום\" (אין צורך להזין כאן שוב) — עם התאריך העברי, פרשת השבוע (רק בשבתות), וחגים. כל משמרת מסווגת אוטומטית לבוקר/צהריים/לילה. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד כמה משמרות לאחת, או למחוק משמרת שגויה."},
             {title:"🚪 יציאה",body:"מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה."},
           ].map((s,i)=>(
             <div key={i} style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:"14px 16px",marginBottom:10}}>
