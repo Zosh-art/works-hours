@@ -167,6 +167,32 @@ function carryOverMidnight(prevData,todayKeyNow){
 
 function calcEarnings(sessions,activeStart=null,hourlyRate=52.19){let regularMs=0,premiumMs=0;const all=[...(sessions||[])];if(activeStart)all.push({start:activeStart,end:Date.now()});for(const s of all){const sp=splitSession(s.start,s.end);regularMs+=sp.regularMs;premiumMs+=sp.premiumMs;}const re=(regularMs/3600000)*hourlyRate,pe=(premiumMs/3600000)*hourlyRate*PREMIUM_RATE;return{regularMs,premiumMs,totalMs:regularMs+premiumMs,regularEarnings:re,premiumEarnings:pe,total:re+pe};}
 
+// ── שחזור חד-פעמי של המידע הישן שהיה מוצפן מקומית (מהגרסה עם הסיסמה המקומית) ──
+const OLD_STORAGE_KEY="work_hours_data_v3";
+const OLD_WAGE_KEY="hourly_rate_v1";
+const OLD_JOURNAL_KEY="journal_notes_v1";
+const OLD_VAULT_KEY="vault_v1";
+function readOldPlainData(){
+  try{
+    const s=localStorage.getItem(OLD_STORAGE_KEY);
+    const w=localStorage.getItem(OLD_WAGE_KEY);
+    const j=localStorage.getItem(OLD_JOURNAL_KEY);
+    if(!s&&!w&&!j)return null;
+    return{data:s?JSON.parse(s):{},hourlyRate:w?parseFloat(w):52.19,journalNotes:j?JSON.parse(j):{}};
+  }catch{return null;}
+}
+function oldBase64ToBuf(b64){const bin=atob(b64);const buf=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);return buf.buffer;}
+async function decryptOldVault(password,raw){
+  const salt=new Uint8Array(oldBase64ToBuf(raw.salt));
+  const enc=new TextEncoder();
+  const keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:150000,hash:"SHA-256"},keyMaterial,{name:"AES-GCM",length:256},false,["decrypt"]);
+  const iv=new Uint8Array(oldBase64ToBuf(raw.iv));
+  const cipherBuf=oldBase64ToBuf(raw.cipher);
+  const plainBuf=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,cipherBuf);
+  return JSON.parse(new TextDecoder().decode(plainBuf));
+}
+
 function isExactMidnight(ts,dateRef){const d=new Date(ts);const ref=new Date(dateRef);return d.getFullYear()===ref.getFullYear()&&d.getMonth()===ref.getMonth()&&d.getDate()===ref.getDate()&&d.getHours()===0&&d.getMinutes()===0;}
 function isExactEndOfDay(ts,dateRef){const d=new Date(ts);const ref=new Date(dateRef);return d.getFullYear()===ref.getFullYear()&&d.getMonth()===ref.getMonth()&&d.getDate()===ref.getDate()&&d.getHours()===23&&d.getMinutes()===59;}
 function getDisplaySessionsForDay(data,dateObj){
@@ -247,6 +273,49 @@ const ChevronLeft=()=><svg width="18" height="18" viewBox="0 0 24 24" fill="none
 
 function ManualEntryModal({targetDate,existingSessions,onSave,onClose,hourlyRate=52.19,T}){const dateStr=`${targetDate.getFullYear()}-${String(targetDate.getMonth()+1).padStart(2,"0")}-${String(targetDate.getDate()).padStart(2,"0")}`;const[sessions,setSessions]=useState(existingSessions?.length?existingSessions.map((s)=>({startStr:new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"}).replace(".",":"),endStr:new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"}).replace(".",":")})):[{startStr:"09:00",endStr:"17:00"}]);function parseTime(ds,t){const[h,m]=t.split(":").map(Number);if(isNaN(h)||isNaN(m))return null;const d=new Date(ds+"T00:00:00");d.setHours(h,m,0,0);return d.getTime();}function parseRange(ds,startStr,endStr){const start=parseTime(ds,startStr);let end=parseTime(ds,endStr);if(start!=null&&end!=null&&end<=start){const nd=new Date(ds+"T00:00:00");nd.setDate(nd.getDate()+1);const[h,m]=endStr.split(":").map(Number);nd.setHours(h,m,0,0);end=nd.getTime();}return{start,end};}function crossesMidnight(startStr,endStr){const[sh,sm]=startStr.split(":").map(Number);const[eh,em]=endStr.split(":").map(Number);if(isNaN(sh)||isNaN(sm)||isNaN(eh)||isNaN(em))return false;return(eh*60+em)<=(sh*60+sm);}function handleSave(){const p=sessions.map(s=>parseRange(dateStr,s.startStr,s.endStr)).filter(s=>s.start&&s.end&&s.end>s.start);if(!p.length)return;onSave(p);}const previewEarn=useMemo(()=>{const p=sessions.map(s=>parseRange(dateStr,s.startStr,s.endStr)).filter(s=>s.start&&s.end&&s.end>s.start);return p.length?calcEarnings(p,null,hourlyRate):null;},[sessions,hourlyRate]);
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>הזנה ידנית — {targetDate.getDate()} {MONTH_NAMES[targetDate.getMonth()]}</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div>{sessions.map((s,i)=>(<div key={i} style={{marginBottom:12}}><div style={{display:"flex",gap:10,alignItems:"center"}}><div style={{flex:1}}><div style={{fontSize:11,color:T.textFaint,marginBottom:4}}>כניסה</div><input type="time" value={s.startStr} onChange={e=>setSessions(p=>p.map((x,j)=>j===i?{...x,startStr:e.target.value}:x))} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",color:T.text,fontSize:16,outline:"none"}}/></div><div style={{flex:1}}><div style={{fontSize:11,color:T.textFaint,marginBottom:4}}>יציאה</div><input type="time" value={s.endStr} onChange={e=>setSessions(p=>p.map((x,j)=>j===i?{...x,endStr:e.target.value}:x))} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",color:T.text,fontSize:16,outline:"none"}}/></div>{sessions.length>1&&<button onClick={()=>setSessions(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:T.red,fontSize:20,cursor:"pointer",marginTop:16}}>✕</button>}</div>{crossesMidnight(s.startStr,s.endStr)&&<div style={{fontSize:11,color:T.violet,marginTop:4}}>🌙 המשמרת נמשכת עד למחרת</div>}</div>))}<button onClick={()=>setSessions(p=>[...p,{startStr:"09:00",endStr:"17:00"}])} style={{width:"100%",padding:"9px",background:T.surface2,border:`1px dashed ${T.border}`,borderRadius:10,color:T.textSub,cursor:"pointer",fontSize:14,marginBottom:14}}>+ הוסף סשן נוסף</button>{previewEarn&&<div style={{background:T.surface2,borderRadius:10,padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between"}}><span style={{color:T.textMuted,fontSize:13}}>סה"כ: <span style={{color:T.accent,fontWeight:700}}>{formatTime(previewEarn.totalMs)}</span></span><span style={{color:T.gold,fontWeight:700,fontSize:15}}>{formatMoney(previewEarn.total)}</span></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
+
+function RecoverOldDataModal({isPlain,onRecover,onDismiss,T}){
+  const[pw,setPw]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[error,setError]=useState("");
+  async function handleSubmitPlain(){
+    setBusy(true);
+    const old=readOldPlainData();
+    onRecover(old||{data:{},hourlyRate:52.19,journalNotes:{}});
+    setBusy(false);
+  }
+  async function handleSubmitEncrypted(){
+    setBusy(true);setError("");
+    try{
+      const raw=JSON.parse(localStorage.getItem(OLD_VAULT_KEY));
+      const old=await decryptOldVault(pw,raw);
+      onRecover(old);
+    }catch{setError("סיסמה שגויה, נסה שוב");}
+    setBusy(false);
+  }
+  return(
+    <div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+      <div style={{background:T.surface,borderRadius:20,padding:28,width:"100%",maxWidth:360,border:`1px solid ${T.border}`,textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:10}}>📦</div>
+        <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6}}>נמצא מידע ישן במכשיר הזה</div>
+        {isPlain?(
+          <>
+            <div style={{fontSize:13,color:T.textMuted,marginBottom:18,lineHeight:1.5}}>יש כאן מידע שנשמר מגרסה קודמת של האפליקציה (בלי סיסמה). ללחוץ למטה כדי להעביר אותו לחשבון החדש שלך.</div>
+            <button onClick={handleSubmitPlain} disabled={busy} style={{width:"100%",padding:"13px",background:busy?T.surface2:T.accent,border:"none",borderRadius:12,color:busy?T.textFaint:"#fff",cursor:busy?"default":"pointer",fontWeight:700,fontSize:15,marginBottom:10}}>{busy?"משחזר...":"שחזר מידע"}</button>
+          </>
+        ):(
+          <>
+            <div style={{fontSize:13,color:T.textMuted,marginBottom:18,lineHeight:1.5}}>יש כאן מידע מוצפן שנשמר מגרסה קודמת. הזן את הסיסמה המקומית הישנה (לא סיסמת האימייל החדשה) כדי להעביר אותו לחשבון החדש שלך.</div>
+            <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="הסיסמה המקומית הישנה" onKeyDown={e=>e.key==="Enter"&&handleSubmitEncrypted()} autoFocus style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:12,textAlign:"center"}}/>
+            {error&&<div style={{color:T.red,fontSize:13,marginBottom:12,fontWeight:600}}>{error}</div>}
+            <button onClick={handleSubmitEncrypted} disabled={busy||!pw} style={{width:"100%",padding:"13px",background:busy||!pw?T.surface2:T.accent,border:"none",borderRadius:12,color:busy||!pw?T.textFaint:"#fff",cursor:busy?"default":"pointer",fontWeight:700,fontSize:15,marginBottom:10}}>{busy?"מפענח...":"שחזר מידע"}</button>
+          </>
+        )}
+        <button onClick={onDismiss} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12}}>אין לי מידע ישן, התעלם מזה</button>
+      </div>
+    </div>
+  );
+}
 
 function WageModal({currentRate,onSave,onClose,T}){const preset=WAGE_PRESETS.find(p=>p.value===currentRate);const[selected,setSelected]=useState(preset?preset.value:null);const[customVal,setCustomVal]=useState(preset?"":String(currentRate));function handleSave(){const rate=selected!==null?selected:parseFloat(customVal.replace(",","."));if(!rate||isNaN(rate)||rate<=0)return;onSave(rate);}
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:360,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>תעריף שעתי</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div><div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>{WAGE_PRESETS.map(p=>(<button key={p.label} onClick={()=>{setSelected(p.value);if(p.value)setCustomVal("");}} style={{padding:"14px 18px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"right",background:(p.value!==null?selected===p.value:selected===null)?T.accent:T.surface2,color:(p.value!==null?selected===p.value:selected===null)?"#fff":T.textSub,fontWeight:700,fontSize:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{p.value?`₪${p.label}`:p.label}</span>{(p.value!==null?selected===p.value:selected===null)&&<span>✓</span>}</button>))}</div>{selected===null&&<div style={{marginBottom:16}}><div style={{fontSize:12,color:T.textFaint,marginBottom:6}}>הזן תעריף ידנית</div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.gold,fontWeight:700,fontSize:18}}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e=>setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px",color:T.text,fontSize:18,outline:"none"}}/></div></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
@@ -443,6 +512,7 @@ export default function WorkHoursTracker(){
   const[showWage,setShowWage]=useState(false);
   const[user,setUser]=useState(undefined); // undefined=בטעינה, null=לא מחובר, אובייקט=מחובר
   const[docLoaded,setDocLoaded]=useState(false);
+  const[showRecover,setShowRecover]=useState(false);
   const[hourlyRate,setHourlyRate]=useState(52.19);
   const[data,setData]=useState({});
   const[summaryMonth,setSummaryMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
@@ -478,6 +548,25 @@ export default function WorkHoursTracker(){
   },[user]);
 
   function handleLogout(){signOut(auth);}
+
+  // אם נמצא מידע ישן במכשיר הזה (מוצפן או רגיל), מציעים לשחזר אותו לחשבון החדש
+  const[showRecoverPlain,setShowRecoverPlain]=useState(false);
+  useEffect(()=>{
+    if(user&&docLoaded){
+      try{
+        if(localStorage.getItem(OLD_VAULT_KEY)){setShowRecover(true);setShowRecoverPlain(false);}
+        else if(readOldPlainData()){setShowRecover(true);setShowRecoverPlain(true);}
+      }catch{}
+    }
+  },[user,docLoaded]);
+  function handleRecoverOldData(old){
+    setData(prev=>({...prev,...(old.data||{})}));
+    setJournalNotes(prev=>({...prev,...(old.journalNotes||{})}));
+    if(old.hourlyRate)setHourlyRate(old.hourlyRate);
+    try{localStorage.removeItem(OLD_VAULT_KEY);localStorage.removeItem(OLD_STORAGE_KEY);localStorage.removeItem(OLD_WAGE_KEY);localStorage.removeItem(OLD_JOURNAL_KEY);}catch{}
+    setShowRecover(false);
+  }
+  function handleDismissRecover(){setShowRecover(false);}
 
   // כל שינוי בנתונים, כשמחוברים, נשמר ל-Firestore (ומסונכרן אוטומטית לכל מכשיר מחובר)
   useEffect(()=>{
@@ -603,6 +692,7 @@ export default function WorkHoursTracker(){
 
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+      {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
       {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const specialShabbat=isSat?getSpecialShabbat(journalDay):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={isSat?journalParashas[jkFull]:""} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
