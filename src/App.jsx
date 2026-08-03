@@ -404,8 +404,9 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
         <div style={{fontSize:12,color:T.textFaint,marginBottom:6,fontWeight:600}}>הערות</div>
         {(notes||[]).length>0?(notes.map(n=>(
           <div key={n.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:T.surface2,borderRadius:10,marginBottom:6,fontSize:13}}>
-            <span style={{color:T.textSub}}>{n.text}</span>
-            <button onClick={()=>onDeleteNote(n.id)} style={{background:"none",border:"none",color:T.red,fontSize:15,cursor:"pointer",padding:0}}>✕</button>
+            <span style={{width:15,flexShrink:0}}/>
+            <span style={{color:T.textSub,flex:1,textAlign:"center"}}>{n.text}</span>
+            <button onClick={()=>onDeleteNote(n.id)} style={{background:"none",border:"none",color:T.red,fontSize:15,cursor:"pointer",padding:0,width:15,flexShrink:0}}>✕</button>
           </div>
         ))):(<div style={{fontSize:12,color:T.textFaint,marginBottom:8}}>אין הערות עדיין</div>)}
 
@@ -461,6 +462,7 @@ function AuthScreen({T}){
         <div style={{fontSize:40,marginBottom:10}}>{mode==="reset"?"✉️":"👋"}</div>
         <div style={{fontSize:19,fontWeight:800,color:T.text,marginBottom:6}}>{mode==="signup"?"יצירת חשבון":mode==="reset"?"איפוס סיסמה":"התחברות"}</div>
         <div style={{fontSize:13,color:T.textMuted,marginBottom:18,lineHeight:1.5}}>{mode==="signup"?"המידע שלך יישמר בענן, נגיש רק לך מכל מכשיר":mode==="reset"?"נשלח לך קישור לאיפוס הסיסמה במייל":"התחבר כדי לראות את השעות שלך"}</div>
+        {mode==="signup"&&<div style={{background:T.surface2,borderRadius:10,padding:"10px 12px",marginBottom:16,fontSize:12,color:T.textMuted,lineHeight:1.6,textAlign:"right"}}>בפעם הראשונה: מזינים אימייל וסיסמה (לפחות 6 תווים) ולוחצים "צור חשבון". זה יוצר חשבון אישי ומאובטח — בכל פעם הבאה נכנסים עם אותם פרטים בדיוק דרך "התחברות". כל אימייל מקבל את המידע הפרטי שלו בלבד, ואפשר להתחבר מכמה מכשירים עם אותו חשבון.</div>}
         <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="אימייל" autoFocus style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:10,textAlign:"center"}}/>
         {mode!=="reset"&&<input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="סיסמה" onKeyDown={e=>e.key==="Enter"&&mode!=="signup"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:mode==="signup"?10:16,textAlign:"center"}}/>}
         {mode==="signup"&&<input type="password" value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="אימות סיסמה" onKeyDown={e=>e.key==="Enter"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:16,textAlign:"center"}}/>}
@@ -500,8 +502,9 @@ function BottomNav({view,setView,onWage,hourlyRate,T}){
     {id:"summary",label:"סיכום",icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>},
     {id:"wage",label:"שכר",icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>},
     {id:"journal",label:"יומן",icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>},
+    {id:"help",label:"עזרה",icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>},
   ];
-  return (<div style={{position:"fixed",bottom:0,left:0,right:0,background:T.navBg,borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-around",padding:"6px 0 max(8px,env(safe-area-inset-bottom))",zIndex:100}}>{tabs.map(tab=>{const isActive=["clock","summary","journal"].includes(tab.id)?view===tab.id:false;const color=isActive?T.accent:T.textMuted;return (<button key={tab.id} onClick={()=>{if(tab.id==="wage")onWage();else setView(tab.id);}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 10px",color,minWidth:56}}>{tab.icon}<span style={{fontSize:10,fontWeight:isActive?700:500}}>{tab.label}</span></button>);})}</div>);
+  return (<div style={{position:"fixed",bottom:0,left:0,right:0,background:T.navBg,borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-around",padding:"6px 0 max(8px,env(safe-area-inset-bottom))",zIndex:100}}>{tabs.map(tab=>{const isActive=["clock","summary","journal","help"].includes(tab.id)?view===tab.id:false;const color=isActive?T.accent:T.textMuted;return (<button key={tab.id} onClick={()=>{if(tab.id==="wage")onWage();else setView(tab.id);}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 8px",color,minWidth:48}}>{tab.icon}<span style={{fontSize:10,fontWeight:isActive?700:500}}>{tab.label}</span></button>);})}</div>);
 }
 
 export default function WorkHoursTracker(){
@@ -701,7 +704,7 @@ export default function WorkHoursTracker(){
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:12,color:T.textFaint}}>{now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}</span>
-          <button onClick={handleLogout} title="התנתקות" style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>🚪</button>
+          <button onClick={handleLogout} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px"}}>יציאה</button>
         </div>
       </div>
 
@@ -884,7 +887,7 @@ export default function WorkHoursTracker(){
                     {hebrewDate.dayStr&&<span style={{fontSize:10,fontWeight:600,color:T.textMuted,lineHeight:1.1}}>{hebrewDate.dayStr}</span>}
                   </div>
                   {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
-                  {parasha&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1,fontWeight:700}}>{parasha}</span>}
+                  {parasha&&<span style={{fontSize:10,color:T.plum,textAlign:"center",lineHeight:1.2,fontWeight:700,width:"100%"}}>{parasha}</span>}
                   <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
                     {worked&&sessions.map((s,si)=>(<span key={si} style={{fontSize:10,color:T.sage,fontWeight:800,textAlign:"center",lineHeight:1.3}}>{s.shiftLabel||classifySession(s.start,s.end)}</span>))}
                   </div>
@@ -895,6 +898,31 @@ export default function WorkHoursTracker(){
           </div>
 
           <div style={{marginTop:16,fontSize:11,color:T.textFaint,textAlign:"center"}}>לחיצה על יום מציגה משמרות והערות, ומאפשרת להוסיף הערה ידנית</div>
+          <div style={{height:16}}/>
+        </div>
+      )}
+
+      {view==="help"&&(
+        <div style={{width:"100%",maxWidth:480,padding:"16px 20px"}}>
+          <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:16,textAlign:"center"}}>איך האפליקציה עובדת</div>
+
+          {[
+            {title:"🏠 ראשי",body:"השעון הגדול באמצע — לחיצה על הכפתור העגול מתחילה משמרת (\"כניסה\"), ולחיצה נוספת מסיימת אותה (\"יציאה\"). למעלה מוצגות שעות היום והחודש עד כה. כשנמצאים בשבת/חג או בשעות לילה, הכרטיס העליון משנה מראה (רקע כהה וסמל ירח) כדי לסמן שהשעות האלה מזכות בתוספת."},
+            {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך."},
+            {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
+            {title:"📅 יומן",body:"לוח חודשי עם התאריך העברי, פרשת השבוע (מוצגת רק בשבתות), וחגים. כל משמרת מסווגת אוטומטית לבוקר/צהריים/לילה. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד כמה משמרות לאחת, או למחוק משמרת שגויה."},
+            {title:"🚪 יציאה",body:"מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה."},
+          ].map((s,i)=>(
+            <div key={i} style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:"14px 16px",marginBottom:10}}>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>{s.title}</div>
+              <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>{s.body}</div>
+            </div>
+          ))}
+
+          <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
+            <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
+          </div>
           <div style={{height:16}}/>
         </div>
       )}
