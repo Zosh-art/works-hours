@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
+import { auth, db } from "./firebase";
+import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
-const STORAGE_KEY = "work_hours_data_v3";
-const WAGE_KEY = "hourly_rate_v1";
-const JOURNAL_KEY = "journal_notes_v1";
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
   { label: "52.19", value: 52.19 },
@@ -349,6 +349,68 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
   );
 }
 
+// ── מסך התחברות / הרשמה (Firebase Authentication) ────────────────────────────
+function AuthScreen({T}){
+  const[mode,setMode]=useState("login"); // login | signup | reset
+  const[email,setEmail]=useState("");
+  const[pw,setPw]=useState("");
+  const[pw2,setPw2]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[error,setError]=useState("");
+  const[msg,setMsg]=useState("");
+
+  function translateErr(err){
+    const c=err?.code||"";
+    if(c.includes("email-already-in-use"))return"האימייל הזה כבר רשום — נסה להתחבר במקום";
+    if(c.includes("invalid-email"))return"כתובת אימייל לא תקינה";
+    if(c.includes("weak-password"))return"הסיסמה חייבת להכיל לפחות 6 תווים";
+    if(c.includes("user-not-found")||c.includes("wrong-password")||c.includes("invalid-credential"))return"אימייל או סיסמה שגויים";
+    if(c.includes("too-many-requests"))return"יותר מדי ניסיונות, נסה שוב בעוד כמה דקות";
+    return"קרתה תקלה, נסה שוב";
+  }
+
+  async function handleSubmit(){
+    setError("");setMsg("");setBusy(true);
+    try{
+      if(mode==="signup"){
+        if(pw.length<6){setError("הסיסמה חייבת להכיל לפחות 6 תווים");setBusy(false);return;}
+        if(pw!==pw2){setError("הסיסמאות לא תואמות");setBusy(false);return;}
+        await createUserWithEmailAndPassword(auth,email.trim(),pw);
+      }else if(mode==="login"){
+        await signInWithEmailAndPassword(auth,email.trim(),pw);
+      }else if(mode==="reset"){
+        await sendPasswordResetEmail(auth,email.trim());
+        setMsg("נשלח מייל לאיפוס סיסמה — בדוק את תיבת הדואר שלך");
+      }
+    }catch(err){setError(translateErr(err));}
+    setBusy(false);
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,direction:"rtl"}}>
+      <div style={{background:T.surface,borderRadius:20,padding:28,width:"100%",maxWidth:360,border:`1px solid ${T.border}`,textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:10}}>{mode==="reset"?"✉️":"👋"}</div>
+        <div style={{fontSize:19,fontWeight:800,color:T.text,marginBottom:6}}>{mode==="signup"?"יצירת חשבון":mode==="reset"?"איפוס סיסמה":"התחברות"}</div>
+        <div style={{fontSize:13,color:T.textMuted,marginBottom:18,lineHeight:1.5}}>{mode==="signup"?"המידע שלך יישמר בענן, נגיש רק לך מכל מכשיר":mode==="reset"?"נשלח לך קישור לאיפוס הסיסמה במייל":"התחבר כדי לראות את השעות שלך"}</div>
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="אימייל" autoFocus style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:10,textAlign:"center"}}/>
+        {mode!=="reset"&&<input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="סיסמה" onKeyDown={e=>e.key==="Enter"&&mode!=="signup"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:mode==="signup"?10:16,textAlign:"center"}}/>}
+        {mode==="signup"&&<input type="password" value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="אימות סיסמה" onKeyDown={e=>e.key==="Enter"&&handleSubmit()} style={{width:"100%",background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",color:T.text,fontSize:16,outline:"none",marginBottom:16,textAlign:"center"}}/>}
+        {error&&<div style={{color:T.red,fontSize:13,marginBottom:12,fontWeight:600}}>{error}</div>}
+        {msg&&<div style={{color:T.green,fontSize:13,marginBottom:12,fontWeight:600}}>{msg}</div>}
+        <button onClick={handleSubmit} disabled={busy||!email||(mode!=="reset"&&!pw)} style={{width:"100%",padding:"13px",background:busy||!email?T.surface2:T.accent,border:"none",borderRadius:12,color:busy||!email?T.textFaint:"#fff",cursor:busy?"default":"pointer",fontWeight:700,fontSize:15}}>{busy?"רגע...":mode==="signup"?"צור חשבון":mode==="reset"?"שלח קישור איפוס":"התחבר"}</button>
+        <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
+          {mode==="login"&&<>
+            <button onClick={()=>{setMode("signup");setError("");setMsg("");}} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13}}>אין לך חשבון? הירשם</button>
+            <button onClick={()=>{setMode("reset");setError("");setMsg("");}} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12}}>שכחת סיסמה?</button>
+          </>}
+          {mode==="signup"&&<button onClick={()=>{setMode("login");setError("");setMsg("");}} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13}}>כבר יש לך חשבון? התחבר</button>}
+          {mode==="reset"&&<button onClick={()=>{setMode("login");setError("");setMsg("");}} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13}}>חזרה להתחברות</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StampButton({isCheckedIn,onClick,sinceLabel,T}){
   const[pressed,setPressed]=useState(false);
   function handleClick(){setPressed(true);onClick();setTimeout(()=>setPressed(false),180);}
@@ -379,11 +441,13 @@ export default function WorkHoursTracker(){
   const[expandedDay,setExpandedDay]=useState(null);
   const[manualEntry,setManualEntry]=useState(null);
   const[showWage,setShowWage]=useState(false);
-  const[hourlyRate,setHourlyRate]=useState(()=>{const s=parseFloat(localStorage.getItem(WAGE_KEY)||"");return (!isNaN(s)&&s>0)?s:52.19;});
-  const[data,setData]=useState(()=>{try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):{};}catch{return{};}});
+  const[user,setUser]=useState(undefined); // undefined=בטעינה, null=לא מחובר, אובייקט=מחובר
+  const[docLoaded,setDocLoaded]=useState(false);
+  const[hourlyRate,setHourlyRate]=useState(52.19);
+  const[data,setData]=useState({});
   const[summaryMonth,setSummaryMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
   const[journalMonth,setJournalMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
-  const[journalNotes,setJournalNotes]=useState(()=>{try{const s=localStorage.getItem(JOURNAL_KEY);return s?JSON.parse(s):{};}catch{return{};}});
+  const[journalNotes,setJournalNotes]=useState({});
   const[journalDay,setJournalDay]=useState(null);
   const[todayParasha,setTodayParasha]=useState("");
   const[summaryParashas,setSummaryParashas]=useState({});
@@ -393,9 +457,34 @@ export default function WorkHoursTracker(){
 
   useEffect(()=>{const link=document.createElement("link");link.rel="stylesheet";link.href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap";document.head.appendChild(link);return ()=>{document.head.removeChild(link);};},[]);
   useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return ()=>clearInterval(t);},[]);
-  useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}catch{}},[data]);
-  useEffect(()=>{try{localStorage.setItem(WAGE_KEY,String(hourlyRate));}catch{}},[hourlyRate]);
-  useEffect(()=>{try{localStorage.setItem(JOURNAL_KEY,JSON.stringify(journalNotes));}catch{}},[journalNotes]);
+
+  // מעקב אחרי מצב ההתחברות ל-Firebase
+  useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setDocLoaded(false);});return unsub;},[]);
+
+  // האזנה בזמן אמת למסמך המשתמש ב-Firestore (מתעדכן אוטומטית מכל מכשיר)
+  useEffect(()=>{
+    if(!user)return;
+    const ref=doc(db,"users",user.uid);
+    const unsub=onSnapshot(ref,async(snap)=>{
+      if(snap.exists()){
+        const d=snap.data();
+        setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});
+      }else{
+        try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
+      }
+      setDocLoaded(true);
+    },()=>setDocLoaded(true));
+    return unsub;
+  },[user]);
+
+  function handleLogout(){signOut(auth);}
+
+  // כל שינוי בנתונים, כשמחוברים, נשמר ל-Firestore (ומסונכרן אוטומטית לכל מכשיר מחובר)
+  useEffect(()=>{
+    if(!user||!docLoaded)return;
+    const ref=doc(db,"users",user.uid);
+    setDoc(ref,{data,hourlyRate,journalNotes},{merge:true}).catch(()=>{});
+  },[data,hourlyRate,journalNotes,user,docLoaded]);
 
   const todayKey=getDayKey(now);
   useEffect(()=>{setData((prev)=>carryOverMidnight(prev,todayKey));},[todayKey]);
@@ -509,6 +598,9 @@ export default function WorkHoursTracker(){
   const jDays=useMemo(()=>Array.from({length:jDaysInMonth},(_,i)=>{const d=new Date(jYear,jMonth,i+1),key=getDayKey(d),entry=data[key];const sessions=getDisplaySessionsForDay(data,d);return{date:d,key,entry,sessions};}),[data,jYear,jMonth,jDaysInMonth,now]);
   useEffect(()=>{const result={};const jobs=[];for(let i=1;i<=jDaysInMonth;i++){const d=new Date(jYear,jMonth,i);if(d.getDay()!==6)continue;const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;jobs.push(fetchParasha(d).then(p=>{if(p)result[key]=p;}));}Promise.all(jobs).then(()=>setJournalParashas(prev=>({...prev,...result})));},[jYear,jMonth]);
 
+  if(user===undefined||(user&&!docLoaded))return <div style={{minHeight:"100vh",background:T.bg}}/>;
+  if(user===null)return <AuthScreen T={T}/>;
+
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
@@ -517,12 +609,16 @@ export default function WorkHoursTracker(){
 
       <div style={{width:"100%",maxWidth:480,padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
-        <span style={{fontSize:12,color:T.textFaint}}>{now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}</span>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:12,color:T.textFaint}}>{now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}</span>
+          <button onClick={handleLogout} title="התנתקות" style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>🚪</button>
+        </div>
       </div>
 
       {view==="clock"&&(()=>{
         const heroNight=isInPremiumWindow(now.getTime())||now.getHours()>=20||now.getHours()<5;
         const heroBg=heroNight?T.nightSurface:T.surface;
+        const heroCardBg=heroNight?T.nightSurface:`radial-gradient(circle at 28% 20%,${T.accentLight},${T.surface} 62%)`;
         const heroText=heroNight?T.nightInk:T.text;
         const heroSub=heroNight?T.nightInkSub:T.textMuted;
         const heroFaint=heroNight?T.nightInkSub:T.textFaint;
@@ -531,7 +627,7 @@ export default function WorkHoursTracker(){
         const heroAccent=heroNight?T.moonGold:T.accent;
         return (
         <div style={{width:"100%",maxWidth:480,padding:"18px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
-          <div style={{width:"100%",background:heroBg,borderRadius:16,padding:"16px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 0.6s ease"}}>
+          <div style={{width:"100%",background:heroCardBg,borderRadius:16,padding:"16px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 0.6s ease"}}>
             <div style={{flex:1}}>
               <div style={{fontSize:32,fontWeight:600,letterSpacing:1,color:heroText,fontVariantNumeric:"tabular-nums",fontFamily:"'Courier New',ui-monospace,monospace"}}>{formatClock(now)}</div>
               <div style={{fontSize:13,color:heroSub,marginTop:4,display:"flex",alignItems:"center",gap:5}}>
@@ -544,6 +640,7 @@ export default function WorkHoursTracker(){
               {weather.length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>{weather.map((w,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:heroSub}}><span>{w.label}</span><span>{w.icon}</span><span style={{fontWeight:700,color:heroText}}>{w.high}°</span><span style={{color:heroFaint}}>{w.low}°</span></div>))}</div>)}
             </div>
             <svg width="118" height="118" viewBox="0 0 200 200" style={{flexShrink:0}}>
+              {!heroNight&&<circle cx="100" cy="100" r="99" fill="none" stroke={T.gold} strokeWidth="2" strokeDasharray="4 7" opacity="0.55"/>}
               <circle cx="100" cy="100" r="96" fill="none" stroke={heroRing} strokeWidth="8"/>
               <circle cx="100" cy="100" r="90" fill={heroBg}/>
               {Array.from({length:12},(_,i)=>{const a=(i*30-90)*Math.PI/180;return <line key={i} x1={100+75*Math.cos(a)} y1={100+75*Math.sin(a)} x2={100+83*Math.cos(a)} y2={100+83*Math.sin(a)} stroke={heroTick} strokeWidth={i%3===0?3:1.5} strokeLinecap="round"/>;})}
