@@ -637,7 +637,7 @@ export default function WorkHoursTracker(){
   },[data,hourlyRate,journalNotes,user,docLoaded]);
 
   const todayKey=getDayKey(now);
-  useEffect(()=>{setData((prev)=>carryOverMidnight(prev,todayKey));},[todayKey]);
+  useEffect(()=>{if(!docLoaded)return;setData((prev)=>carryOverMidnight(prev,todayKey));},[todayKey,docLoaded]);
 
   const todayData=data[todayKey]||{sessions:[],active:null};
   const isCheckedIn=!!todayData.active;
