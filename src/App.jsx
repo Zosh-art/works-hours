@@ -644,6 +644,29 @@ export default function WorkHoursTracker(){
   const todayEarnings=useMemo(()=>calcEarnings(todayData.sessions,todayData.active,hourlyRate),[todayData,now,hourlyRate]);
   const monthToDateHours=useMemo(()=>{const ty=now.getFullYear(),tm=now.getMonth(),td=now.getDate();let totalMs=0,total=0;for(let i=1;i<=td;i++){const d=new Date(ty,tm,i),key=getDayKey(d),entry=data[key];if(!entry)continue;const earn=calcEarnings(entry.sessions,i===td?entry.active:null,hourlyRate);totalMs+=earn.totalMs;total+=earn.total;}return{totalMs,total};},[data,now.getFullYear(),now.getMonth(),now.getDate(),hourlyRate]);
 
+  // אם הכניסה "הועברה" מיום קודם בחצות (עדיין במשמרת רציפה), נמצא את הזמן האמיתי שבו היא התחילה —
+  // כדי שתווית "מאז" תמשיך להראות את השעה האמיתית ולא תיראה כאילו המשמרת התאפסה
+  const trueActiveStart=useMemo(()=>{
+    if(!todayData.active)return null;
+    if(!isExactMidnight(todayData.active,now))return todayData.active;
+    let cursor=new Date(now);cursor.setHours(0,0,0,0);
+    let trueStart=todayData.active;
+    for(let guard=0;guard<400;guard++){
+      const prevDate=new Date(cursor);prevDate.setDate(prevDate.getDate()-1);
+      const prevKey=getDayKey(prevDate);
+      const prevEntry=data[prevKey];
+      const prevRaw=prevEntry?.sessions||[];
+      const prevLast=prevRaw[prevRaw.length-1];
+      if(prevLast&&isExactEndOfDay(prevLast.end,prevDate)){
+        trueStart=prevLast.start;
+        if(isExactMidnight(prevLast.start,prevDate)){cursor=prevDate;continue;}
+        break;
+      }
+      break;
+    }
+    return trueStart;
+  },[data,todayData.active,todayKey]);
+
   function handleCheckIn(){setData((prev)=>{const e=prev[todayKey]||{sessions:[],active:null};if(e.active)return prev;return{...prev,[todayKey]:{...e,active:Date.now()}};});}
   function handleCheckOut(){
     setData((prev)=>{
@@ -809,7 +832,7 @@ export default function WorkHoursTracker(){
             {[{val:formatTime(todayEarnings.totalMs),label:'סה"כ היום',color:isCheckedIn?T.green:T.text},{val:formatTime(monthToDateHours.totalMs),label:"שעות החודש",color:T.accent},{val:formatMoney(monthToDateHours.total),label:"רווח החודש",color:T.gold},{val:`₪${hourlyRate.toFixed(2)}`,label:"תעריף שעתי",color:T.violet}].map((item,i)=>(<div key={i} style={{textAlign:"center"}}><div style={{fontSize:13,fontWeight:700,color:item.color,fontVariantNumeric:"tabular-nums"}}>{item.val}</div><div style={{fontSize:9,color:T.textFaint,marginTop:3}}>{item.label}</div></div>))}
           </div>
 
-          <StampButton isCheckedIn={isCheckedIn} onClick={isCheckedIn?handleCheckOut:handleCheckIn} sinceLabel={isCheckedIn?new Date(todayData.active).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"}):null} T={T}/>
+          <StampButton isCheckedIn={isCheckedIn} onClick={isCheckedIn?handleCheckOut:handleCheckIn} sinceLabel={isCheckedIn&&trueActiveStart?(()=>{const started=new Date(trueActiveStart);const sameDay=started.toDateString()===now.toDateString();const timeStr=started.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});return sameDay?timeStr:`${timeStr} (${DAY_NAMES[started.getDay()]})`;})():null} T={T}/>
 
           <button onClick={()=>setManualEntry({date:new Date()})} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:"10px 20px",color:T.textSub,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",gap:8}}><span>✏️</span> הזן שעות ידנית להיום</button>
 
