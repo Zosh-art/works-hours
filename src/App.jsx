@@ -139,45 +139,6 @@ function getGreeting(hour){if(hour>=5&&hour<12)return"בוקר טוב";if(hour>=
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 
-// ── תיקון חד-פעמי: פיצול משמרות ישנות שנשמרו (בטעות) כרשומה אחת שחוצה חצות ──
-function fixCrossMidnightData(prevData){
-  const next={};
-  for(const key of Object.keys(prevData)){next[key]={sessions:[],active:prevData[key]?.active??null};}
-  let changedCount=0;
-  for(const key of Object.keys(prevData)){
-    const entry=prevData[key];
-    for(const s of (entry.sessions||[])){
-      const sameDay=new Date(s.start).toDateString()===new Date(s.end).toDateString();
-      if(sameDay){
-        const dk=getDayKey(new Date(s.start));
-        if(!next[dk])next[dk]={sessions:[],active:null};
-        next[dk].sessions.push(s);
-        continue;
-      }
-      changedCount++;
-      let cursor=new Date(s.start);cursor.setHours(0,0,0,0);
-      let segStart=s.start;
-      let first=true;
-      for(let guard=0;guard<400;guard++){
-        const dayEndTs=new Date(cursor);dayEndTs.setHours(23,59,59,999);
-        const dk=getDayKey(cursor);
-        if(!next[dk])next[dk]={sessions:[],active:null};
-        if(s.end<=dayEndTs.getTime()){
-          next[dk].sessions.push({start:segStart,end:s.end,...(first&&s.shiftLabel?{shiftLabel:s.shiftLabel}:{})});
-          break;
-        }else{
-          next[dk].sessions.push({start:segStart,end:dayEndTs.getTime(),...(first&&s.shiftLabel?{shiftLabel:s.shiftLabel}:{})});
-          first=false;
-          const nd=new Date(cursor);nd.setDate(nd.getDate()+1);nd.setHours(0,0,0,0);
-          cursor=nd;segStart=nd.getTime();
-        }
-      }
-    }
-  }
-  for(const key of Object.keys(next))next[key].sessions.sort((a,b)=>a.start-b.start);
-  return{next,changedCount};
-}
-
 function carryOverMidnight(prevData,todayKeyNow){
   let changed=false;
   const next={...prevData};
@@ -648,17 +609,6 @@ export default function WorkHoursTracker(){
   }
 
   function handleLogout(){signOut(auth);}
-  const[fixMsg,setFixMsg]=useState("");
-  const[fixBusy,setFixBusy]=useState(false);
-  function handleFixCrossMidnight(){
-    setFixBusy(true);
-    setData(prev=>{
-      const{next,changedCount}=fixCrossMidnightData(prev);
-      setFixMsg(changedCount>0?`תוקנו ${changedCount} משמרות שחצו חצות ✓`:"לא נמצאו משמרות לתיקון — הכל כבר תקין");
-      return changedCount>0?next:prev;
-    });
-    setFixBusy(false);
-  }
 
   // אם נמצא מידע ישן במכשיר הזה (מוצפן או רגיל), מציעים לשחזר אותו לחשבון החדש
   const[showRecoverPlain,setShowRecoverPlain]=useState(false);
@@ -805,6 +755,9 @@ export default function WorkHoursTracker(){
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:12,color:T.textFaint}}>{now.getDate()} {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}</span>
+          <a href="https://wa.me/972502866611?text=%D7%94%D7%99%2C%20%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A9%D7%90%D7%9C%D7%94%2F%D7%AA%D7%A7%D7%9C%D7%94%20%D7%91%D7%90%D7%A4%D7%9C%D7%99%D7%A7%D7%A6%D7%99%D7%99%D7%AA%20%D7%93%D7%95%D7%97%20%D7%A9%D7%A2%D7%95%D7%AA" target="_blank" rel="noopener noreferrer" title="תמיכה בוואטסאפ" style={{display:"flex",alignItems:"center",justifyContent:"center",width:26,height:26,borderRadius:"50%",background:"#25D366"}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.71.45 3.38 1.3 4.85L2.05 22l5.36-1.4a9.9 9.9 0 004.63 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2m0 1.67c2.24 0 4.34.87 5.92 2.45a8.23 8.23 0 012.42 5.85c0 4.56-3.72 8.28-8.29 8.28a8.3 8.3 0 01-4.22-1.15l-.3-.18-3.15.82.84-3.07-.2-.32a8.2 8.2 0 01-1.26-4.38c0-4.56 3.72-8.3 8.24-8.3M8.53 6.98c-.16 0-.43.06-.65.31s-.86.84-.86 2.05.88 2.38 1 2.54c.12.17 1.71 2.7 4.21 3.68 2.08.82 2.5.66 2.95.62.45-.05 1.46-.6 1.66-1.17.2-.58.2-1.08.14-1.18-.06-.1-.22-.16-.46-.28s-1.46-.72-1.68-.8c-.23-.08-.39-.12-.56.12s-.65.8-.8.97c-.14.16-.29.18-.53.06-.25-.12-1.04-.38-1.99-1.22-.73-.66-1.23-1.46-1.37-1.71-.15-.25-.02-.38.11-.51.11-.11.25-.28.37-.42.13-.14.17-.24.25-.4.08-.16.04-.3-.02-.42-.06-.12-.56-1.36-.78-1.86-.2-.49-.4-.42-.56-.43z"/></svg>
+          </a>
           <button onClick={handleLogout} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px"}}>יציאה</button>
         </div>
       </div>
@@ -1026,13 +979,6 @@ export default function WorkHoursTracker(){
           <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
             <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
             <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
-          </div>
-
-          <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:10}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🛠️ תיקון משמרות ישנות שחוצות חצות</div>
-            <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>אם יש לך משמרות ישנות מלפני עדכון מסוים שנשמרו כרשומה אחת גם כשהן חוצות חצות (ולכן מופיעות כולן ביום אחד בסיכום) — הכפתור הזה יפצל אותן מחדש, כך שכל יום קלנדרי יראה רק את השעות שבאמת עבדת בו. פעולה בטוחה, אפשר להריץ כמה פעמים.</div>
-            <button onClick={handleFixCrossMidnight} disabled={fixBusy} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>{fixBusy?"בודק...":"תקן משמרות ישנות"}</button>
-            {fixMsg&&<div style={{fontSize:12,color:T.green,fontWeight:600,marginTop:8,textAlign:"center"}}>{fixMsg}</div>}
           </div>
           <div style={{height:16}}/>
         </div>
