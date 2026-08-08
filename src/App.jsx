@@ -139,6 +139,45 @@ function getGreeting(hour){if(hour>=5&&hour<12)return"בוקר טוב";if(hour>=
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 
+// ── תיקון חד-פעמי: פיצול משמרות ישנות שנשמרו (בטעות) כרשומה אחת שחוצה חצות ──
+function fixCrossMidnightData(prevData){
+  const next={};
+  for(const key of Object.keys(prevData)){next[key]={sessions:[],active:prevData[key]?.active??null};}
+  let changedCount=0;
+  for(const key of Object.keys(prevData)){
+    const entry=prevData[key];
+    for(const s of (entry.sessions||[])){
+      const sameDay=new Date(s.start).toDateString()===new Date(s.end).toDateString();
+      if(sameDay){
+        const dk=getDayKey(new Date(s.start));
+        if(!next[dk])next[dk]={sessions:[],active:null};
+        next[dk].sessions.push(s);
+        continue;
+      }
+      changedCount++;
+      let cursor=new Date(s.start);cursor.setHours(0,0,0,0);
+      let segStart=s.start;
+      let first=true;
+      for(let guard=0;guard<400;guard++){
+        const dayEndTs=new Date(cursor);dayEndTs.setHours(23,59,59,999);
+        const dk=getDayKey(cursor);
+        if(!next[dk])next[dk]={sessions:[],active:null};
+        if(s.end<=dayEndTs.getTime()){
+          next[dk].sessions.push({start:segStart,end:s.end,...(first&&s.shiftLabel?{shiftLabel:s.shiftLabel}:{})});
+          break;
+        }else{
+          next[dk].sessions.push({start:segStart,end:dayEndTs.getTime(),...(first&&s.shiftLabel?{shiftLabel:s.shiftLabel}:{})});
+          first=false;
+          const nd=new Date(cursor);nd.setDate(nd.getDate()+1);nd.setHours(0,0,0,0);
+          cursor=nd;segStart=nd.getTime();
+        }
+      }
+    }
+  }
+  for(const key of Object.keys(next))next[key].sessions.sort((a,b)=>a.start-b.start);
+  return{next,changedCount};
+}
+
 function carryOverMidnight(prevData,todayKeyNow){
   let changed=false;
   const next={...prevData};
@@ -609,6 +648,17 @@ export default function WorkHoursTracker(){
   }
 
   function handleLogout(){signOut(auth);}
+  const[fixMsg,setFixMsg]=useState("");
+  const[fixBusy,setFixBusy]=useState(false);
+  function handleFixCrossMidnight(){
+    setFixBusy(true);
+    setData(prev=>{
+      const{next,changedCount}=fixCrossMidnightData(prev);
+      setFixMsg(changedCount>0?`תוקנו ${changedCount} משמרות שחצו חצות ✓`:"לא נמצאו משמרות לתיקון — הכל כבר תקין");
+      return changedCount>0?next:prev;
+    });
+    setFixBusy(false);
+  }
 
   // אם נמצא מידע ישן במכשיר הזה (מוצפן או רגיל), מציעים לשחזר אותו לחשבון החדש
   const[showRecoverPlain,setShowRecoverPlain]=useState(false);
@@ -976,6 +1026,13 @@ export default function WorkHoursTracker(){
           <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
             <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
             <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
+          </div>
+
+          <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🛠️ תיקון משמרות ישנות שחוצות חצות</div>
+            <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>אם יש לך משמרות ישנות מלפני עדכון מסוים שנשמרו כרשומה אחת גם כשהן חוצות חצות (ולכן מופיעות כולן ביום אחד בסיכום) — הכפתור הזה יפצל אותן מחדש, כך שכל יום קלנדרי יראה רק את השעות שבאמת עבדת בו. פעולה בטוחה, אפשר להריץ כמה פעמים.</div>
+            <button onClick={handleFixCrossMidnight} disabled={fixBusy} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>{fixBusy?"בודק...":"תקן משמרות ישנות"}</button>
+            {fixMsg&&<div style={{fontSize:12,color:T.green,fontWeight:600,marginTop:8,textAlign:"center"}}>{fixMsg}</div>}
           </div>
           <div style={{height:16}}/>
         </div>
