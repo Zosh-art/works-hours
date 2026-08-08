@@ -673,38 +673,7 @@ export default function WorkHoursTracker(){
       const e=prev[todayKey];
       if(!e?.active)return prev;
       const checkoutTs=Date.now();
-      if(!isExactMidnight(e.active,now)){
-        return{...prev,[todayKey]:{sessions:[...(e.sessions||[]),{start:e.active,end:checkoutTs}],active:null}};
-      }
-      const next={...prev};
-      let trueStart=e.active;
-      let trueStartDayKey=todayKey;
-      const daysToTrim=[];
-      let cursor=new Date(now);cursor.setHours(0,0,0,0);
-      for(let guard=0;guard<400;guard++){
-        const prevDate=new Date(cursor);prevDate.setDate(prevDate.getDate()-1);
-        const prevKey=getDayKey(prevDate);
-        const prevEntry=prev[prevKey];
-        const prevRaw=prevEntry?.sessions||[];
-        const prevLast=prevRaw[prevRaw.length-1];
-        if(prevLast&&isExactEndOfDay(prevLast.end,prevDate)){
-          trueStart=prevLast.start;
-          trueStartDayKey=prevKey;
-          daysToTrim.push(prevKey);
-          if(isExactMidnight(prevLast.start,prevDate)){cursor=prevDate;continue;}
-          break;
-        }
-        break;
-      }
-      for(const k of daysToTrim){
-        const entry=next[k];
-        if(!entry)continue;
-        next[k]={...entry,sessions:(entry.sessions||[]).slice(0,-1)};
-      }
-      const startEntry=next[trueStartDayKey]||{sessions:[],active:null};
-      next[trueStartDayKey]={...startEntry,sessions:[...(startEntry.sessions||[]),{start:trueStart,end:checkoutTs}],active:trueStartDayKey===todayKey?null:startEntry.active};
-      next[todayKey]={...next[todayKey],active:null};
-      return next;
+      return{...prev,[todayKey]:{sessions:[...(e.sessions||[]),{start:e.active,end:checkoutTs}],active:null}};
     });
   }
   function handleManualSave(date,sessions){const key=getDayKey(date);setData((prev)=>({...prev,[key]:{sessions,active:null}}));setManualEntry(null);}
