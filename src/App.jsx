@@ -757,7 +757,7 @@ export default function WorkHoursTracker(){
 
   const{year,month}=summaryMonth;
   const daysInMonth=getDaysInMonth(year,month);
-  const days=useMemo(()=>Array.from({length:daysInMonth},(_,i)=>{const d=new Date(year,month,i+1),key=getDayKey(d),entry=data[key];const earnings=entry?calcEarnings(entry.sessions,entry.active,hourlyRate):{regularMs:0,premiumMs:0,totalMs:0,regularEarnings:0,premiumEarnings:0,total:0};return{date:d,key,earnings,entry};}),[data,year,month,daysInMonth,hourlyRate]);
+  const days=useMemo(()=>Array.from({length:daysInMonth},(_,i)=>{const d=new Date(year,month,i+1),key=getDayKey(d),entry=data[key];const earnings=entry?calcEarnings(entry.sessions,entry.active,hourlyRate):{regularMs:0,premiumMs:0,totalMs:0,regularEarnings:0,premiumEarnings:0,total:0};return{date:d,key,earnings,entry};}),[data,year,month,daysInMonth,hourlyRate,now]);
   const monthTotals=useMemo(()=>days.reduce((a,d)=>({totalMs:a.totalMs+d.earnings.totalMs,premiumMs:a.premiumMs+d.earnings.premiumMs,total:a.total+d.earnings.total,regularEarnings:a.regularEarnings+d.earnings.regularEarnings,premiumEarnings:a.premiumEarnings+d.earnings.premiumEarnings}),{totalMs:0,premiumMs:0,total:0,regularEarnings:0,premiumEarnings:0}),[days]);
   const maxDayMs=Math.max(...days.map(d=>d.earnings.totalMs),1);
   useEffect(()=>{const result={};const jobs=[];for(let i=1;i<=daysInMonth;i++){const d=new Date(year,month,i);if(d.getDay()!==6)continue;const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;jobs.push(fetchParasha(d).then(p=>{if(p)result[key]=p;}));}Promise.all(jobs).then(()=>setSummaryParashas(prev=>({...prev,...result})));},[year,month]);
