@@ -136,6 +136,35 @@ function formatTime(ms){if(!ms||ms<=0)return"0:00";return`${Math.floor(ms/360000
 function formatMoney(n){return"₪"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
 function formatClock(d){return d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}
 function getGreeting(hour){if(hour>=5&&hour<12)return"בוקר טוב";if(hour>=12&&hour<17)return"צהריים טובים";if(hour>=17&&hour<21)return"ערב טוב";return"לילה טוב";}
+
+// ── רקע השעון: מדרג צבעים לאורך היום ────────────────────────────────────────
+function hexToRgb(hex){hex=hex.replace("#","");const n=parseInt(hex,16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function rgbToHex(r,g,b){return"#"+[r,g,b].map(v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0")).join("");}
+function mixHex(hex1,hex2,t){const[r1,g1,b1]=hexToRgb(hex1),[r2,g2,b2]=hexToRgb(hex2);return rgbToHex(r1+(r2-r1)*t,g1+(g2-g1)*t,b1+(b2-b1)*t);}
+const DAY_STOPS=[
+  {h:0, bg:"#212B3D",accent:"#3B4863"},
+  {h:5, bg:"#3B3A55",accent:"#6B5A7A"},
+  {h:6.5,bg:"#C98B6B",accent:"#F0C49A"},
+  {h:9, bg:"#F6F1E7",accent:"#F3DCD6"},
+  {h:13,bg:"#FCFAF3",accent:"#F0E9D8"},
+  {h:17,bg:"#F6F1E7",accent:"#E8B77A"},
+  {h:19,bg:"#8C4A34",accent:"#C97A4A"},
+  {h:21,bg:"#3B3A55",accent:"#5A4A6A"},
+  {h:24,bg:"#212B3D",accent:"#3B4863"},
+];
+function getDayStop(hourFrac){
+  for(let i=0;i<DAY_STOPS.length-1;i++){
+    const a=DAY_STOPS[i],b=DAY_STOPS[i+1];
+    if(hourFrac>=a.h&&hourFrac<=b.h){const t=(hourFrac-a.h)/(b.h-a.h);return{bg:mixHex(a.bg,b.bg,t),accent:mixHex(a.accent,b.accent,t)};}
+  }
+  return DAY_STOPS[0];
+}
+function weatherOverlay(code){
+  if(code==null)return"";
+  if([0,1].includes(code))return""; // בהיר, אין שכבה
+  if([2,3,45,48].includes(code))return"linear-gradient(rgba(90,90,95,0.10),rgba(90,90,95,0.10)),"; // מעונן/ערפל
+  return"linear-gradient(rgba(70,95,120,0.14),rgba(70,95,120,0.14)),"; // גשם/שלג/סופה
+}
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 
@@ -565,6 +594,7 @@ export default function WorkHoursTracker(){
   const[summaryParashas,setSummaryParashas]=useState({});
   const[journalParashas,setJournalParashas]=useState({});
   const[weather,setWeather]=useState([]);
+  const[todayWeatherCode,setTodayWeatherCode]=useState(null);
   const[askedName,setAskedName]=useState(true);
   const[showAskName,setShowAskName]=useState(false);
   const T=THEMES.light;
@@ -722,7 +752,7 @@ export default function WorkHoursTracker(){
   const todayHolidayInfo=useMemo(()=>getDayHolidayInfo(now),[todayKey]);
   useEffect(()=>{if(!isFriOrSat){setTodayParasha("");return;}const sat=getSaturdayOf(now);if(sat)fetchParasha(sat).then(p=>setTodayParasha(p));},[todayKey]);
   const todaySpecialShabbat=useMemo(()=>{if(!isFriOrSat)return"";const sat=getSaturdayOf(now);return sat?getSpecialShabbat(sat):"";},[todayKey]);
-  useEffect(()=>{const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",51:"🌦️",61:"🌧️",71:"🌨️",80:"🌧️",95:"⛈️"};async function load(){try{const url="https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Asia%2FJerusalem&forecast_days=3";const res=await fetch(url);const json=await res.json();const d=json.daily;setWeather(d.time.slice(1,3).map((dt,i)=>({label:["מחר","מחרתיים"][i],high:Math.round(d.temperature_2m_max[i+1]),low:Math.round(d.temperature_2m_min[i+1]),icon:WEATHER_ICONS[d.weathercode[i+1]]||"🌡️"})));}catch{setWeather([]);}}load();},[todayKey]);
+  useEffect(()=>{const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",51:"🌦️",61:"🌧️",71:"🌨️",80:"🌧️",95:"⛈️"};async function load(){try{const url="https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&daily=temperature_2m_max,temperature_2m_min,weathercode&current_weather=true&timezone=Asia%2FJerusalem&forecast_days=3";const res=await fetch(url);const json=await res.json();const d=json.daily;setWeather(d.time.slice(1,3).map((dt,i)=>({label:["מחר","מחרתיים"][i],high:Math.round(d.temperature_2m_max[i+1]),low:Math.round(d.temperature_2m_min[i+1]),icon:WEATHER_ICONS[d.weathercode[i+1]]||"🌡️"})));setTodayWeatherCode(json.current_weather?.weathercode??d.weathercode?.[0]??null);}catch{setWeather([]);}}load();},[todayKey]);
 
   const{year,month}=summaryMonth;
   const daysInMonth=getDaysInMonth(year,month);
@@ -764,9 +794,12 @@ export default function WorkHoursTracker(){
       </div>
 
       {view==="clock"&&(()=>{
-        const heroNight=isInPremiumWindow(now.getTime())||now.getHours()>=20||now.getHours()<5;
+        const isPremiumNow=isInPremiumWindow(now.getTime());
+        const heroNight=isPremiumNow||now.getHours()>=20||now.getHours()<5;
+        const hourFrac=now.getHours()+now.getMinutes()/60;
+        const dayStop=getDayStop(hourFrac);
         const heroBg=heroNight?T.nightSurface:T.surface;
-        const heroCardBg=heroNight?T.nightSurface:`radial-gradient(circle at 28% 20%,${T.accentLight},${T.surface} 62%)`;
+        const heroCardBg=isPremiumNow?T.nightSurface:`${weatherOverlay(todayWeatherCode)}radial-gradient(circle at 28% 20%,${dayStop.accent},${dayStop.bg} 65%)`;
         const heroText=heroNight?T.nightInk:T.text;
         const heroSub=heroNight?T.nightInkSub:T.textMuted;
         const heroFaint=heroNight?T.nightInkSub:T.textFaint;
@@ -774,10 +807,11 @@ export default function WorkHoursTracker(){
         const heroTick=heroNight?T.nightRing:T.clockTick;
         const heroAccent=heroNight?T.moonGold:T.accent;
         const displayName=user?.displayName||user?.email?.split("@")[0]||"";
+        const shiftProgress=isCheckedIn&&trueActiveStart?Math.max(0,Math.min(1,(now.getTime()-trueActiveStart)/(8*3600000))):0;
         return (
         <div style={{width:"100%",maxWidth:480,padding:"18px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
-          <div style={{width:"100%",background:heroCardBg,borderRadius:16,padding:"16px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 0.6s ease"}}>
-            <div style={{flex:1}}>
+          <div style={{width:"100%",background:heroCardBg,borderRadius:16,padding:"16px 18px",position:"relative",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 1.2s ease"}}>
+            <div style={{flex:1,position:"relative"}}>
               {displayName&&<div style={{fontSize:13,fontWeight:700,color:heroAccent,marginBottom:2}}>{getGreeting(now.getHours())}, {displayName} 👋</div>}
               <div style={{fontSize:32,fontWeight:600,letterSpacing:1,color:heroText,fontVariantNumeric:"tabular-nums",fontFamily:"'Courier New',ui-monospace,monospace"}}>{formatClock(now)}</div>
               <div style={{fontSize:13,color:heroSub,marginTop:4,display:"flex",alignItems:"center",gap:5}}>
@@ -789,7 +823,7 @@ export default function WorkHoursTracker(){
               {isFriOrSat&&todayParasha&&<div style={{fontSize:12,color:heroAccent,marginTop:3,fontWeight:600}}>{formatParashaLabel(todayParasha,todaySpecialShabbat)} ✦</div>}
               {weather.length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>{weather.map((w,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:heroSub}}><span>{w.label}</span><span>{w.icon}</span><span style={{fontWeight:700,color:heroText}}>{w.high}°</span><span style={{color:heroFaint}}>{w.low}°</span></div>))}</div>)}
             </div>
-            <svg width="118" height="118" viewBox="0 0 200 200" style={{flexShrink:0}}>
+            <svg width="118" height="118" viewBox="0 0 200 200" style={{flexShrink:0,position:"relative"}}>
               {!heroNight&&<circle cx="100" cy="100" r="99" fill="none" stroke={T.gold} strokeWidth="2" strokeDasharray="4 7" opacity="0.55"/>}
               <circle cx="100" cy="100" r="96" fill="none" stroke={heroRing} strokeWidth="8"/>
               <circle cx="100" cy="100" r="90" fill={heroBg}/>
@@ -799,6 +833,11 @@ export default function WorkHoursTracker(){
               <line x1="100" y1="100" x2={100+72*Math.cos((secDeg-90)*Math.PI/180)} y2={100+72*Math.sin((secDeg-90)*Math.PI/180)} stroke={heroAccent} strokeWidth="1.5" strokeLinecap="round"/>
               <circle cx="100" cy="100" r="4" fill={heroAccent}/>
             </svg>
+            {isCheckedIn&&(
+              <div style={{position:"absolute",left:0,right:0,bottom:0,height:3,background:`${heroAccent}25`}}>
+                <div style={{height:"100%",width:`${shiftProgress*100}%`,background:heroAccent,boxShadow:`0 0 8px ${heroAccent}`,transition:"width 1s linear"}}/>
+              </div>
+            )}
           </div>
 
           <div style={{background:T.surface,borderRadius:16,border:`1px solid ${T.border}`,padding:"14px 10px",width:"100%",display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
