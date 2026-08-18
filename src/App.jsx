@@ -170,6 +170,12 @@ function weatherOverlay(code){
 }
 function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
+function getHebrewMonthLabel(y,m){
+  const firstMonth=toHebrewDate(new Date(y,m,1)).monthStr;
+  const lastDay=getDaysInMonth(y,m);
+  const lastMonth=toHebrewDate(new Date(y,m,lastDay)).monthStr;
+  return firstMonth===lastMonth?firstMonth:`${firstMonth}-${lastMonth}`;
+}
 
 function carryOverMidnight(prevData,todayKeyNow){
   let changed=false;
@@ -912,7 +918,7 @@ export default function WorkHoursTracker(){
               <span style={{fontSize:10,color:T.textFaint}}>{MONTH_NAMES[prevMonth.getMonth()]}</span>
             </div>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:700,color:T.text}}>{MONTH_NAMES[month]} {year}<span style={{fontSize:13,color:T.textFaint,fontWeight:400,marginRight:8}}>· {toHebrewDate(new Date(year,month,1)).monthStr}</span></div>
+              <div style={{fontSize:20,fontWeight:700,color:T.text}}>{MONTH_NAMES[month]} {year}<span style={{fontSize:13,color:T.textFaint,fontWeight:400,marginRight:8}}>· {getHebrewMonthLabel(year,month)}</span></div>
               {(year!==new Date().getFullYear()||month!==new Date().getMonth())&&(<button onClick={()=>{const d=new Date();setSummaryMonth({year:d.getFullYear(),month:d.getMonth()});}} style={{marginTop:4,background:T.accent,border:"none",borderRadius:12,padding:"2px 12px",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>היום ↩</button>)}
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
@@ -994,7 +1000,7 @@ export default function WorkHoursTracker(){
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
             <button onClick={()=>setJournalMonth((p)=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><ChevronRight/></button>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:18,fontWeight:700,color:T.text}}>{MONTH_NAMES[jMonth]} {jYear}<span style={{fontSize:12,color:T.textFaint,fontWeight:400,marginRight:6}}>· {toHebrewDate(new Date(jYear,jMonth,1)).monthStr}</span></div>
+              <div style={{fontSize:18,fontWeight:700,color:T.text}}>{MONTH_NAMES[jMonth]} {jYear}<span style={{fontSize:12,color:T.textFaint,fontWeight:400,marginRight:6}}>· {getHebrewMonthLabel(jYear,jMonth)}</span></div>
               {(jYear!==new Date().getFullYear()||jMonth!==new Date().getMonth())&&(<button onClick={()=>{const d=new Date();setJournalMonth({year:d.getFullYear(),month:d.getMonth()});}} style={{marginTop:4,background:T.accent,border:"none",borderRadius:12,padding:"2px 12px",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>היום ↩</button>)}
             </div>
             <button onClick={()=>setJournalMonth((p)=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><ChevronLeft/></button>
