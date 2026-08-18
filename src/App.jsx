@@ -225,6 +225,11 @@ async function decryptOldVault(password,raw){
 
 function isExactMidnight(ts,dateRef){const d=new Date(ts);const ref=new Date(dateRef);return d.getFullYear()===ref.getFullYear()&&d.getMonth()===ref.getMonth()&&d.getDate()===ref.getDate()&&d.getHours()===0&&d.getMinutes()===0;}
 function isExactEndOfDay(ts,dateRef){const d=new Date(ts);const ref=new Date(dateRef);return d.getFullYear()===ref.getFullYear()&&d.getMonth()===ref.getMonth()&&d.getDate()===ref.getDate()&&d.getHours()===23&&d.getMinutes()===59;}
+function endsAtDayBoundary(ts,dateRef){
+  if(isExactEndOfDay(ts,dateRef))return true;
+  const nextDay=new Date(dateRef);nextDay.setDate(nextDay.getDate()+1);
+  return isExactMidnight(ts,nextDay);
+}
 function getDisplaySessionsForDay(data,dateObj){
   const dayKey=getDayKey(dateObj);
   const entry=data[dayKey];
@@ -236,9 +241,9 @@ function getDisplaySessionsForDay(data,dateObj){
     if(isExactMidnight(s.start,dateObj)){
       const prevRaw=prevEntry?.sessions||[];
       const prevLast=prevRaw[prevRaw.length-1];
-      if(prevLast&&isExactEndOfDay(prevLast.end,prevDate))continue;
+      if(prevLast&&endsAtDayBoundary(prevLast.end,prevDate))continue;
     }
-    if(isExactEndOfDay(s.end,dateObj)){
+    if(endsAtDayBoundary(s.end,dateObj)){
       let mergedEnd=s.end,isLive=false;
       const cursorDate=new Date(dateObj);cursorDate.setDate(cursorDate.getDate()+1);
       for(let guard=0;guard<400;guard++){
@@ -248,7 +253,7 @@ function getDisplaySessionsForDay(data,dateObj){
         const first=cRaw[0];
         if(first&&isExactMidnight(first.start,cursorDate)){
           mergedEnd=first.end;
-          if(isExactEndOfDay(first.end,cursorDate)){cursorDate.setDate(cursorDate.getDate()+1);continue;}
+          if(endsAtDayBoundary(first.end,cursorDate)){cursorDate.setDate(cursorDate.getDate()+1);continue;}
           break;
         }else if(cEntry.active&&isExactMidnight(cEntry.active,cursorDate)){
           mergedEnd=Date.now();isLive=true;break;
@@ -265,37 +270,68 @@ function getDisplaySessionsForDay(data,dateObj){
   return result;
 }
 
-const SHIFT_LABELS={morning:"בוקר",afternoon:"צהריים",night:"לילה",bt:"בצ",tl:"צל",btl:"בצל"};
+const SHIFT_LABELS={morning:"בוקר",afternoon:"צהריים",night:"לילה"};
+const SHIFT_LETTER={morning:"ב",afternoon:"צ",night:"ל"};
+function labelToSelection(label){
+  return{morning:label.includes("ב"),afternoon:label.includes("צ"),night:label.includes("ל")};
+}
+function selectionToLabel(sel,startTs){
+  const count=[sel.morning,sel.afternoon,sel.night].filter(Boolean).length;
+  if(count===0)return null;
+  const H=3600000;
+  const day=new Date(startTs);day.setHours(0,0,0,0);const base=day.getTime();
+  const hourOffset=startTs-base;
+  let anchor;
+  if(hourOffset<5*H)anchor="night";
+  else if(hourOffset<14*H)anchor="morning";
+  else if(hourOffset<20*H)anchor="afternoon";
+  else anchor="night";
+  const CYCLE=["morning","afternoon","night"];
+  const idx=CYCLE.indexOf(anchor);
+  const rotated=[...CYCLE.slice(idx),...CYCLE.slice(0,idx)];
+  const chosen=rotated.filter(c=>sel[c]);
+  if(chosen.length===1)return SHIFT_LABELS[chosen[0]];
+  return chosen.map(c=>SHIFT_LETTER[c]).join("");
+}
+// ── סיווג משמרת: האותיות בתווית מייצגות את סדר הפרקים הכרונולוגי שהמשמרת עברה בו ──
+// ב=בוקר צ=צהריים ל=לילה. משמרת שמתחילה לפני חצות ("לילה") ממשיכה בלי שעת סיום קבועה,
+// וצריכה רק שעה אחת (לא שעתיים) בפרק הבא כדי "להתחבר" אליו — כל שאר המעברים דורשים שעתיים.
 function classifySession(startTs,endTs){
   if(!startTs||!endTs||endTs<=startTs)return"";
   const H=3600000;
-  let mo=0,af=0,ni=0;
-  const first=new Date(startTs);first.setHours(0,0,0,0);
-  let dayStart=first.getTime();
-  const ov=(w)=>Math.max(0,Math.min(endTs,w[1])-Math.max(startTs,w[0]));
-  while(dayStart<endTs){
-    mo+=ov([dayStart+5*H,dayStart+14*H]);
-    af+=ov([dayStart+14*H,dayStart+20*H]);
-    ni+=ov([dayStart+20*H,dayStart+24*H])+ov([dayStart,dayStart+5*H]);
-    dayStart+=24*H;
-  }
-  const THRESH=45*60000;
   const segs=[];
-  if(mo>THRESH)segs.push("m");
-  if(af>THRESH)segs.push("a");
-  if(ni>THRESH)segs.push("n");
-  if(segs.length<=1){
-    const max=Math.max(mo,af,ni);
-    if(max<=0)return"";
-    if(max===ni)return SHIFT_LABELS.night;
-    if(max===mo)return SHIFT_LABELS.morning;
-    return SHIFT_LABELS.afternoon;
+  let cursor=startTs;
+  while(cursor<endTs){
+    const day=new Date(cursor);day.setHours(0,0,0,0);const base=day.getTime();
+    const hourOffset=cursor-base;
+    let cat,segEndAbs;
+    if(hourOffset<5*H){cat="n";segEndAbs=base+5*H;}
+    else if(hourOffset<14*H){cat="m";segEndAbs=base+14*H;}
+    else if(hourOffset<20*H){cat="a";segEndAbs=base+20*H;}
+    else{cat="n";segEndAbs=base+24*H+5*H;}
+    const segEnd=Math.min(endTs,segEndAbs);
+    const dur=segEnd-cursor;
+    if(segs.length&&segs[segs.length-1].cat===cat)segs[segs.length-1].dur+=dur;
+    else segs.push({cat,dur});
+    cursor=segEnd;
   }
-  const key=segs.join("");
-  if(key==="ma")return SHIFT_LABELS.bt;
-  if(key==="an")return SHIFT_LABELS.tl;
-  if(key==="man")return SHIFT_LABELS.btl;
-  return mo>=ni?SHIFT_LABELS.morning:SHIFT_LABELS.night;
+  const map={m:SHIFT_LABELS.morning,a:SHIFT_LABELS.afternoon,n:SHIFT_LABELS.night};
+  const letter={m:"ב",a:"צ",n:"ל"};
+  if(segs.length===0)return"";
+  if(segs.length===1)return map[segs[0].cat];
+  const THRESH=2*H,NIGHT_THRESH=1*H;
+  while(segs.length>1){
+    if(segs[0].dur<THRESH)segs.shift();
+    else break;
+  }
+  while(segs.length>1){
+    const prev=segs[segs.length-2],last=segs[segs.length-1];
+    const th=(prev.cat==="n"&&last.cat==="m")?NIGHT_THRESH:THRESH;
+    if(last.dur<th)segs.pop();
+    else break;
+  }
+  if(segs.length===1)return map[segs[0].cat];
+  return segs.map(s=>letter[s.cat]).join("");
 }
 
 const ChevronRight=()=><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
@@ -376,6 +412,7 @@ return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:
 function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,onDeleteNote,onSetShiftOverride,onMergeSessions,onDeleteSession,onClose,T}){
   const[text,setText]=useState("");
   const[editingStart,setEditingStart]=useState(null);
+  const[editSelection,setEditSelection]=useState({morning:false,afternoon:false,night:false});
   const[confirmDeleteStart,setConfirmDeleteStart]=useState(null);
   const[mergeMode,setMergeMode]=useState(false);
   const[selected,setSelected]=useState([]);
@@ -427,7 +464,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
                     </div>
                     {!mergeMode&&(<div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{color:T.accent,fontWeight:600}}>{label}</span>
-                      {!s.live&&<button onClick={()=>setEditingStart(isEditing?null:s.start)} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,padding:0}}>✏️</button>}
+                      {!s.live&&<button onClick={()=>{const next=isEditing?null:s.start;setEditingStart(next);if(next)setEditSelection(labelToSelection(label));}} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,padding:0}}>✏️</button>}
                       {!s.live&&<button onClick={()=>setConfirmDeleteStart(confirmDeleteStart===s.start?null:s.start)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:12,padding:0}}>🗑️</button>}
                     </div>)}
                   </div>
@@ -441,10 +478,21 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
                     </div>
                   )}
                   {isEditing&&!mergeMode&&(
-                    <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                      {["בוקר","צהריים","לילה","בצ","צל","בצל"].map(opt=>(
-                        <button key={opt} onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,opt);setEditingStart(null);}} style={{padding:"5px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:label===opt?T.accent:T.surface,color:label===opt?"#fff":T.textSub}}>{opt}</button>
-                      ))}
+                    <div style={{marginTop:8}}>
+                      <div style={{fontSize:11,color:T.textFaint,marginBottom:6}}>בחר את כל הפרקים ששייכים למשמרת — אפשר יותר מאחד</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                        {[{key:"morning",lbl:"בוקר"},{key:"afternoon",lbl:"צהריים"},{key:"night",lbl:"לילה"}].map(opt=>{
+                          const active=editSelection[opt.key];
+                          return(
+                            <button key={opt.key} onClick={(e)=>{
+                              e.stopPropagation();
+                              const next={...editSelection,[opt.key]:!editSelection[opt.key]};
+                              setEditSelection(next);
+                              onSetShiftOverride(s.start,selectionToLabel(next,s.start));
+                            }} style={{padding:"7px 16px",borderRadius:8,border:active?"none":`1px solid ${T.border}`,cursor:"pointer",fontSize:13,fontWeight:700,background:active?T.accent:T.surface,color:active?"#fff":T.textSub}}>{opt.lbl}</button>
+                          );
+                        })}
+                      </div>
                       <button onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,null);setEditingStart(null);}} style={{padding:"5px 10px",borderRadius:8,border:`1px dashed ${T.border}`,cursor:"pointer",fontSize:12,color:T.textFaint,background:"none"}}>אוטומטי</button>
                     </div>
                   )}
@@ -687,7 +735,7 @@ export default function WorkHoursTracker(){
       const prevEntry=data[prevKey];
       const prevRaw=prevEntry?.sessions||[];
       const prevLast=prevRaw[prevRaw.length-1];
-      if(prevLast&&isExactEndOfDay(prevLast.end,prevDate)){
+      if(prevLast&&endsAtDayBoundary(prevLast.end,prevDate)){
         trueStart=prevLast.start;
         if(isExactMidnight(prevLast.start,prevDate)){cursor=prevDate;continue;}
         break;
