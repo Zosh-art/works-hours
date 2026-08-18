@@ -73,7 +73,7 @@ function numToGematria(n){const h=Math.floor(n/100),t=Math.floor((n%100)/10),u=n
 function toHebrewDate(date){try{const parts=new Intl.DateTimeFormat("he-IL-u-ca-hebrew",{day:"numeric",month:"long",year:"numeric"}).formatToParts(date);const dayNum=parseInt(parts.find(p=>p.type==="day")?.value||"0");const monthStr=parts.find(p=>p.type==="month")?.value||"";const yearNum=parseInt(new Intl.DateTimeFormat("en-u-ca-hebrew",{year:"numeric"}).format(date));const dayStr=(HEB_DAY_ARR[dayNum]||String(dayNum))+"׳";const yearStr="ה׳"+numToGematria(yearNum%1000);return{dayNum,monthStr,yearNum,dayStr,yearStr,full:`${dayStr} ב${monthStr} ${yearStr}`};}catch{return{dayNum:0,monthStr:"",yearNum:0,dayStr:"",yearStr:"",full:""};}}
 
 const parashaCache={};
-async function fetchParasha(saturdayDate){const key=`${saturdayDate.getFullYear()}-${String(saturdayDate.getMonth()+1).padStart(2,"0")}-${String(saturdayDate.getDate()).padStart(2,"0")}`;if(parashaCache[key])return parashaCache[key];try{const url=`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&mod=off&nx=off&year=${saturdayDate.getFullYear()}&month=${saturdayDate.getMonth()+1}&ss=off&mf=off&c=off&s=on&i=on&lg=he&leyning=off`;const res=await fetch(url,{mode:"cors",cache:"no-store"});if(!res.ok)throw new Error(`hebcal http ${res.status}`);const json=await res.json();const item=(json.items||[]).find((i)=>i.category==="parashat"&&i.date?.slice(0,10)===key);if(item?.hebrew){parashaCache[key]=item.hebrew;return item.hebrew;}return "";}catch(err){console.error("fetchParasha failed for",key,err);return "";}}
+async function fetchParasha(saturdayDate){const key=`${saturdayDate.getFullYear()}-${String(saturdayDate.getMonth()+1).padStart(2,"0")}-${String(saturdayDate.getDate()).padStart(2,"0")}`;if(parashaCache[key])return parashaCache[key];try{const url=`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=off&min=off&mod=off&nx=off&year=${saturdayDate.getFullYear()}&month=${saturdayDate.getMonth()+1}&ss=off&mf=off&c=off&s=on&i=on&lg=he&leyning=off`;const res=await fetch(url,{mode:"cors",cache:"no-store"});if(!res.ok)throw new Error(`hebcal http ${res.status}`);const json=await res.json();const item=(json.items||[]).find((i)=>i.category==="parashat"&&i.date?.slice(0,10)===key);if(item?.hebrew){const clean=item.hebrew.replace(/^פרשת\s*/,"");parashaCache[key]=clean;return clean;}return "";}catch(err){console.error("fetchParasha failed for",key,err);return "";}}
 
 const SPECIAL_SHABBAT_RULES=[
   {months:["שבט"],range:[24,30],name:"שבת שקלים"},
@@ -86,10 +86,13 @@ const SPECIAL_SHABBAT_RULES=[
   {months:["אב"],range:[3,9],name:"שבת חזון"},
   {months:["אב"],range:[10,16],name:"שבת נחמו"},
   {months:["תשרי"],range:[3,9],name:"שבת שובה"},
-  {months:["תשרי"],range:[23,29],name:"שבת בראשית"},
-  {months:["חשוון"],range:[1,6],name:"שבת בראשית"},
 ];
-function getSpecialShabbat(date){const{monthStr,dayNum}=toHebrewDate(date);for(const r of SPECIAL_SHABBAT_RULES){if(r.months.includes(monthStr)&&dayNum>=r.range[0]&&dayNum<=r.range[1])return r.name;}return "";}
+function getSpecialShabbat(date,parasha){
+  if(parasha==="בראשית")return"שבת בראשית"; // נגזר מהפרשה עצמה, לא מטווח תאריכים — כדי לא לתפוס בטעות גם את נח
+  const{monthStr,dayNum}=toHebrewDate(date);
+  for(const r of SPECIAL_SHABBAT_RULES){if(r.months.includes(monthStr)&&dayNum>=r.range[0]&&dayNum<=r.range[1])return r.name;}
+  return"";
+}
 function formatParashaLabel(name,special){if(!name)return"";return special?`${name} (${special})`:name;}
 function getSaturdayOf(date){const d=new Date(date),day=d.getDay();if(day===6)return d;if(day===5){d.setDate(d.getDate()+1);return d;}return null;}
 
@@ -319,15 +322,33 @@ function classifySession(startTs,endTs){
   const letter={m:"ב",a:"צ",n:"ל"};
   if(segs.length===0)return"";
   if(segs.length===1)return map[segs[0].cat];
-  const THRESH=2*H,NIGHT_THRESH=1*H;
+  const THRESH=2*H;
+
+  // משמרת שהתחילה לפני חצות (מ-20:00) — "לילה" ללא שעת סיום קבועה עד 10:00.
+  // רק אם היא ממשיכה מעבר לשעה 11:00 (שעה שלמה אחרי 10:00), היא מתחברת ל"בוקר".
+  if(new Date(startTs).getHours()>=20){
+    const NIGHT_ANCHOR=10*H,NIGHT_THRESH=1*H;
+    let pastAnchor=0,dayIndex=0;
+    let dayCursor=new Date(startTs);dayCursor.setHours(0,0,0,0);let base=dayCursor.getTime();
+    const ov=(w)=>Math.max(0,Math.min(endTs,w[1])-Math.max(startTs,w[0]));
+    while(base<endTs){
+      if(dayIndex>0)pastAnchor+=ov([base+NIGHT_ANCHOR,base+24*H]);
+      base+=24*H;dayIndex++;
+    }
+    if(pastAnchor<NIGHT_THRESH)return SHIFT_LABELS.night;
+    let af=0;
+    for(const s of segs)if(s.cat==="a")af+=s.dur;
+    if(af>THRESH)return"לבצ";
+    return"לב";
+  }
+
   while(segs.length>1){
     if(segs[0].dur<THRESH)segs.shift();
     else break;
   }
   while(segs.length>1){
-    const prev=segs[segs.length-2],last=segs[segs.length-1];
-    const th=(prev.cat==="n"&&last.cat==="m")?NIGHT_THRESH:THRESH;
-    if(last.dur<th)segs.pop();
+    const last=segs[segs.length-1];
+    if(last.dur<THRESH)segs.pop();
     else break;
   }
   if(segs.length===1)return map[segs[0].cat];
@@ -799,7 +820,7 @@ export default function WorkHoursTracker(){
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
   const todayHolidayInfo=useMemo(()=>getDayHolidayInfo(now),[todayKey]);
   useEffect(()=>{if(!isFriOrSat){setTodayParasha("");return;}const sat=getSaturdayOf(now);if(sat)fetchParasha(sat).then(p=>setTodayParasha(p));},[todayKey]);
-  const todaySpecialShabbat=useMemo(()=>{if(!isFriOrSat)return"";const sat=getSaturdayOf(now);return sat?getSpecialShabbat(sat):"";},[todayKey]);
+  const todaySpecialShabbat=useMemo(()=>{if(!isFriOrSat)return"";const sat=getSaturdayOf(now);return sat?getSpecialShabbat(sat,todayParasha):"";},[todayKey,todayParasha]);
   useEffect(()=>{const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",51:"🌦️",61:"🌧️",71:"🌨️",80:"🌧️",95:"⛈️"};async function load(){try{const url="https://api.open-meteo.com/v1/forecast?latitude=32.0853&longitude=34.7818&daily=temperature_2m_max,temperature_2m_min,weathercode&current_weather=true&timezone=Asia%2FJerusalem&forecast_days=3";const res=await fetch(url);const json=await res.json();const d=json.daily;setWeather(d.time.slice(1,3).map((dt,i)=>({label:["מחר","מחרתיים"][i],high:Math.round(d.temperature_2m_max[i+1]),low:Math.round(d.temperature_2m_min[i+1]),icon:WEATHER_ICONS[d.weathercode[i+1]]||"🌡️"})));setTodayWeatherCode(json.current_weather?.weathercode??d.weathercode?.[0]??null);}catch{setWeather([]);}}load();},[todayKey]);
 
   const{year,month}=summaryMonth;
@@ -827,7 +848,7 @@ export default function WorkHoursTracker(){
       {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
-      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const specialShabbat=isSat?getSpecialShabbat(journalDay):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={isSat?journalParashas[jkFull]:""} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
+      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const jParasha=isSat?journalParashas[jkFull]:"";const specialShabbat=isSat?getSpecialShabbat(journalDay,jParasha):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={jParasha} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
 
       <div style={{width:"100%",maxWidth:480,padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
@@ -947,7 +968,7 @@ export default function WorkHoursTracker(){
               const dayKey2=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
               const hebrewDate=toHebrewDate(date);
               const parasha=date.getDay()===6?(summaryParashas[dayKey2]||null):null;
-              const specialShabbat=date.getDay()===6?getSpecialShabbat(date):"";
+              const specialShabbat=date.getDay()===6?getSpecialShabbat(date,parasha):"";
               const holidayInfo=getDayHolidayInfo(date);
               return (
                 <div key={date.getDate()}>
@@ -1018,9 +1039,9 @@ export default function WorkHoursTracker(){
             {jDays.map(({date,key,sessions})=>{
               const isToday=key===todayKey;
               const holidayInfo=getDayHolidayInfo(date);
-              const specialShabbat=date.getDay()===6?getSpecialShabbat(date):"";
               const dayKeyFull=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
               const parasha=date.getDay()===6?(journalParashas[dayKeyFull]||null):null;
+              const specialShabbat=date.getDay()===6?getSpecialShabbat(date,parasha):"";
               const hebrewDate=toHebrewDate(date);
               const notes=journalNotes[key]||[];
               const notesCount=notes.length;
@@ -1056,7 +1077,7 @@ export default function WorkHoursTracker(){
             {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך אותן או להזין שעות ידנית ליום שבו שכחת להפעיל את השעון."},
             {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
             {title:"📅 יומן",body:"לוח חודשי שמתמלא אוטומטית לפי המשמרות שנרשמו בטאב \"סיכום\" (אין צורך להזין כאן שוב) — עם התאריך העברי, פרשת השבוע (רק בשבתות), וחגים. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד (🔗) כמה משמרות נפרדות לאחת, או למחוק (🗑️) משמרת שגויה."},
-            {title:"🌙 איך משמרת מסווגת",body:"התווית בנויה מהאותיות של הפרקים שהמשמרת עברה בהם, בסדר הזמן האמיתי: ב=בוקר (05:00–14:00), צ=צהריים (14:00–20:00), ל=לילה (20:00–05:00). לדוגמה: התחלת בבוקר והמשכת לצהריים = \"בצ\". התחלת בצהריים והמשכת ללילה = \"צל\".\n\nחריג חשוב: משמרת שהתחילה לפני חצות (מ-20:00) נשארת \"לילה\" בלי שעת סיום קבועה — גם אם היא נמשכת עד הבוקר, כל עוד לא עברה לפחות שעה אחרי 12:00 בצהריים. רק אם היא ממשיכה מעבר לזה, היא הופכת ל\"לב\" (לילה שהתחבר לבוקר). זה שונה ממשמרת שמתחילה בבוקר ונמשכת עד הלילה, שנקראת \"בל\" (בוקר ואז לילה) — הסדר קובע את השם, לא רק אילו פרקים היו מעורבים."},
+            {title:"🌙 איך משמרת מסווגת",body:"התווית בנויה מהאותיות של הפרקים שהמשמרת עברה בהם, בסדר הזמן האמיתי: ב=בוקר (05:00–14:00), צ=צהריים (14:00–20:00), ל=לילה (20:00–05:00). לדוגמה: התחלת בבוקר והמשכת לצהריים = \"בצ\". התחלת בצהריים והמשכת ללילה = \"צל\".\n\nחריג חשוב: משמרת שהתחילה לפני חצות (מ-20:00) נשארת \"לילה\" עד השעה 10:00 בבוקר, בלי שעת סיום קבועה. אם היא ממשיכה מעבר ל-10:00 — היא עדיין \"לילה\", כל עוד לא עברה גם את השעה 11:00. רק החל מ-11:00 היא הופכת ל\"לב\" (לילה שהתחבר לבוקר)."},
             {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם הנכון לבד לפי הסדר הכרונולוגי האמיתי של המשמרת שלך — למשל אם היא התחילה ב-22:00, בחירת בוקר+לילה תיתן \"לב\"."},
             {title:"🆘 תמיכה",body:"כפתור \"תמיכה\" בסרגל העליון פותח שיחת וואטסאפ עם הודעה מוכנה מראש — לכל תקלה, שאלה או רעיון."},
             {title:"🚪 יציאה",body:"כפתור \"יציאה\" בסרגל העליון מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה — ואם שכחת אותה, יש קישור \"שכחת סיסמה?\" במסך ההתחברות."},
