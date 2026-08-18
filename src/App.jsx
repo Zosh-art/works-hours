@@ -273,86 +273,55 @@ function getDisplaySessionsForDay(data,dateObj){
   return result;
 }
 
-const SHIFT_LABELS={morning:"בוקר",afternoon:"צהריים",night:"לילה"};
-const SHIFT_LETTER={morning:"ב",afternoon:"צ",night:"ל"};
+const SHIFT_LABELS={morning:"בוקר",afternoon:"צהריים",night:"לילה",bt:"בצ",tl:"צל",btl:"בצל"};
 function labelToSelection(label){
-  return{morning:label.includes("ב"),afternoon:label.includes("צ"),night:label.includes("ל")};
+  if(label==="בוקר")return{morning:true,afternoon:false,night:false};
+  if(label==="צהריים")return{morning:false,afternoon:true,night:false};
+  if(label==="לילה")return{morning:false,afternoon:false,night:true};
+  if(label==="בצ")return{morning:true,afternoon:true,night:false};
+  if(label==="צל")return{morning:false,afternoon:true,night:true};
+  if(label==="בצל")return{morning:true,afternoon:true,night:true};
+  return{morning:false,afternoon:false,night:false};
 }
-function selectionToLabel(sel,startTs){
+function selectionToLabel(sel){
   const count=[sel.morning,sel.afternoon,sel.night].filter(Boolean).length;
   if(count===0)return null;
-  const H=3600000;
-  const day=new Date(startTs);day.setHours(0,0,0,0);const base=day.getTime();
-  const hourOffset=startTs-base;
-  let anchor;
-  if(hourOffset<5*H)anchor="night";
-  else if(hourOffset<14*H)anchor="morning";
-  else if(hourOffset<20*H)anchor="afternoon";
-  else anchor="night";
-  const CYCLE=["morning","afternoon","night"];
-  const idx=CYCLE.indexOf(anchor);
-  const rotated=[...CYCLE.slice(idx),...CYCLE.slice(0,idx)];
-  const chosen=rotated.filter(c=>sel[c]);
-  if(chosen.length===1)return SHIFT_LABELS[chosen[0]];
-  return chosen.map(c=>SHIFT_LETTER[c]).join("");
+  if(count===1)return sel.morning?SHIFT_LABELS.morning:sel.afternoon?SHIFT_LABELS.afternoon:SHIFT_LABELS.night;
+  if(count===3)return SHIFT_LABELS.btl;
+  if(sel.morning&&sel.afternoon)return SHIFT_LABELS.bt;
+  if(sel.afternoon&&sel.night)return SHIFT_LABELS.tl;
+  return SHIFT_LABELS.btl; // בוקר+לילה בלי צהריים - מקרה נדיר, מציגים כ"בצל"
 }
-// ── סיווג משמרת: האותיות בתווית מייצגות את סדר הפרקים הכרונולוגי שהמשמרת עברה בו ──
-// ב=בוקר צ=צהריים ל=לילה. משמרת שמתחילה לפני חצות ("לילה") ממשיכה בלי שעת סיום קבועה,
-// וצריכה רק שעה אחת (לא שעתיים) בפרק הבא כדי "להתחבר" אליו — כל שאר המעברים דורשים שעתיים.
 function classifySession(startTs,endTs){
   if(!startTs||!endTs||endTs<=startTs)return"";
   const H=3600000;
+  let mo=0,af=0,ni=0;
+  const first=new Date(startTs);first.setHours(0,0,0,0);
+  let dayStart=first.getTime();
+  const ov=(w)=>Math.max(0,Math.min(endTs,w[1])-Math.max(startTs,w[0]));
+  while(dayStart<endTs){
+    mo+=ov([dayStart+5*H,dayStart+14*H]);
+    af+=ov([dayStart+14*H,dayStart+20*H]);
+    ni+=ov([dayStart+20*H,dayStart+24*H])+ov([dayStart,dayStart+5*H]);
+    dayStart+=24*H;
+  }
+  const THRESH=2*H; // שעתיים
   const segs=[];
-  let cursor=startTs;
-  while(cursor<endTs){
-    const day=new Date(cursor);day.setHours(0,0,0,0);const base=day.getTime();
-    const hourOffset=cursor-base;
-    let cat,segEndAbs;
-    if(hourOffset<5*H){cat="n";segEndAbs=base+5*H;}
-    else if(hourOffset<14*H){cat="m";segEndAbs=base+14*H;}
-    else if(hourOffset<20*H){cat="a";segEndAbs=base+20*H;}
-    else{cat="n";segEndAbs=base+24*H+5*H;}
-    const segEnd=Math.min(endTs,segEndAbs);
-    const dur=segEnd-cursor;
-    if(segs.length&&segs[segs.length-1].cat===cat)segs[segs.length-1].dur+=dur;
-    else segs.push({cat,dur});
-    cursor=segEnd;
+  if(mo>THRESH)segs.push("m");
+  if(af>THRESH)segs.push("a");
+  if(ni>THRESH)segs.push("n");
+  if(segs.length<=1){
+    const max=Math.max(mo,af,ni);
+    if(max<=0)return"";
+    if(max===ni)return SHIFT_LABELS.night;
+    if(max===mo)return SHIFT_LABELS.morning;
+    return SHIFT_LABELS.afternoon;
   }
-  const map={m:SHIFT_LABELS.morning,a:SHIFT_LABELS.afternoon,n:SHIFT_LABELS.night};
-  const letter={m:"ב",a:"צ",n:"ל"};
-  if(segs.length===0)return"";
-  if(segs.length===1)return map[segs[0].cat];
-  const THRESH=2*H;
-
-  // משמרת שהתחילה לפני חצות (מ-20:00) — "לילה" ללא שעת סיום קבועה עד 10:00.
-  // רק אם היא ממשיכה מעבר לשעה 11:00 (שעה שלמה אחרי 10:00), היא מתחברת ל"בוקר".
-  if(new Date(startTs).getHours()>=20){
-    const NIGHT_ANCHOR=10*H,NIGHT_THRESH=1*H;
-    let pastAnchor=0,dayIndex=0;
-    let dayCursor=new Date(startTs);dayCursor.setHours(0,0,0,0);let base=dayCursor.getTime();
-    const ov=(w)=>Math.max(0,Math.min(endTs,w[1])-Math.max(startTs,w[0]));
-    while(base<endTs){
-      if(dayIndex>0)pastAnchor+=ov([base+NIGHT_ANCHOR,base+24*H]);
-      base+=24*H;dayIndex++;
-    }
-    if(pastAnchor<NIGHT_THRESH)return SHIFT_LABELS.night;
-    let af=0;
-    for(const s of segs)if(s.cat==="a")af+=s.dur;
-    if(af>THRESH)return"לבצ";
-    return"לב";
-  }
-
-  while(segs.length>1){
-    if(segs[0].dur<THRESH)segs.shift();
-    else break;
-  }
-  while(segs.length>1){
-    const last=segs[segs.length-1];
-    if(last.dur<THRESH)segs.pop();
-    else break;
-  }
-  if(segs.length===1)return map[segs[0].cat];
-  return segs.map(s=>letter[s.cat]).join("");
+  const key=segs.join("");
+  if(key==="ma")return SHIFT_LABELS.bt;
+  if(key==="an")return SHIFT_LABELS.tl;
+  if(key==="man")return SHIFT_LABELS.btl;
+  return mo>=ni?SHIFT_LABELS.morning:SHIFT_LABELS.night;
 }
 
 const ChevronRight=()=><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
@@ -509,7 +478,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
                               e.stopPropagation();
                               const next={...editSelection,[opt.key]:!editSelection[opt.key]};
                               setEditSelection(next);
-                              onSetShiftOverride(s.start,selectionToLabel(next,s.start));
+                              onSetShiftOverride(s.start,selectionToLabel(next));
                             }} style={{padding:"7px 16px",borderRadius:8,border:active?"none":`1px solid ${T.border}`,cursor:"pointer",fontSize:13,fontWeight:700,background:active?T.accent:T.surface,color:active?"#fff":T.textSub}}>{opt.lbl}</button>
                           );
                         })}
@@ -1077,8 +1046,8 @@ export default function WorkHoursTracker(){
             {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך אותן או להזין שעות ידנית ליום שבו שכחת להפעיל את השעון."},
             {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
             {title:"📅 יומן",body:"לוח חודשי שמתמלא אוטומטית לפי המשמרות שנרשמו בטאב \"סיכום\" (אין צורך להזין כאן שוב) — עם התאריך העברי, פרשת השבוע (רק בשבתות), וחגים. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד (🔗) כמה משמרות נפרדות לאחת, או למחוק (🗑️) משמרת שגויה."},
-            {title:"🌙 איך משמרת מסווגת",body:"התווית בנויה מהאותיות של הפרקים שהמשמרת עברה בהם, בסדר הזמן האמיתי: ב=בוקר (05:00–14:00), צ=צהריים (14:00–20:00), ל=לילה (20:00–05:00). לדוגמה: התחלת בבוקר והמשכת לצהריים = \"בצ\". התחלת בצהריים והמשכת ללילה = \"צל\".\n\nחריג חשוב: משמרת שהתחילה לפני חצות (מ-20:00) נשארת \"לילה\" עד השעה 10:00 בבוקר, בלי שעת סיום קבועה. אם היא ממשיכה מעבר ל-10:00 — היא עדיין \"לילה\", כל עוד לא עברה גם את השעה 11:00. רק החל מ-11:00 היא הופכת ל\"לב\" (לילה שהתחבר לבוקר)."},
-            {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם הנכון לבד לפי הסדר הכרונולוגי האמיתי של המשמרת שלך — למשל אם היא התחילה ב-22:00, בחירת בוקר+לילה תיתן \"לב\"."},
+            {title:"🌙 איך משמרת מסווגת",body:"המשמרת מסווגת לפי כמה שעות היא חופפת עם כל פרק ביום: בוקר (05:00–14:00), צהריים (14:00–20:00), לילה (20:00–05:00). אם היא חופפת משמעותית (יותר משעתיים) עם שני פרקים, היא מקבלת שם משולב: בצ (בוקר+צהריים), צל (צהריים+לילה), בצל (כל השלושה)."},
+            {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם המשולב הנכון לבד (למשל בוקר+צהריים = \"בצ\")."},
             {title:"🆘 תמיכה",body:"כפתור \"תמיכה\" בסרגל העליון פותח שיחת וואטסאפ עם הודעה מוכנה מראש — לכל תקלה, שאלה או רעיון."},
             {title:"🚪 יציאה",body:"כפתור \"יציאה\" בסרגל העליון מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה — ואם שכחת אותה, יש קישור \"שכחת סיסמה?\" במסך ההתחברות."},
           ].map((s,i)=>(
