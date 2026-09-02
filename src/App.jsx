@@ -88,7 +88,7 @@ const SPECIAL_SHABBAT_RULES=[
   {months:["תשרי"],range:[3,9],name:"שבת שובה"},
 ];
 function getSpecialShabbat(date,parasha){
-  if(parasha==="בראשית")return"שבת בראשית"; // נגזר מהפרשה עצמה, לא מטווח תאריכים — כדי לא לתפוס בטעות גם את נח
+  if(parasha==="בראשית")return"שבת בראשית";
   const{monthStr,dayNum}=toHebrewDate(date);
   for(const r of SPECIAL_SHABBAT_RULES){if(r.months.includes(monthStr)&&dayNum>=r.range[0]&&dayNum<=r.range[1])return r.name;}
   return"";
@@ -140,7 +140,6 @@ function formatMoney(n){return"₪"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g
 function formatClock(d){return d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}
 function getGreeting(hour){if(hour>=5&&hour<12)return"בוקר טוב";if(hour>=12&&hour<17)return"צהריים טובים";if(hour>=17&&hour<21)return"ערב טוב";return"לילה טוב";}
 
-// ── רקע השעון: מדרג צבעים לאורך היום ────────────────────────────────────────
 function hexToRgb(hex){hex=hex.replace("#","");const n=parseInt(hex,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function rgbToHex(r,g,b){return"#"+[r,g,b].map(v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0")).join("");}
 function mixHex(hex1,hex2,t){const[r1,g1,b1]=hexToRgb(hex1),[r2,g2,b2]=hexToRgb(hex2);return rgbToHex(r1+(r2-r1)*t,g1+(g2-g1)*t,b1+(b2-b1)*t);}
@@ -164,11 +163,11 @@ function getDayStop(hourFrac){
 }
 function weatherOverlay(code){
   if(code==null)return"";
-  if([0,1].includes(code))return""; // בהיר, אין שכבה
-  if([2,3,45,48].includes(code))return"linear-gradient(rgba(90,90,95,0.10),rgba(90,90,95,0.10)),"; // מעונן/ערפל
-  return"linear-gradient(rgba(70,95,120,0.14),rgba(70,95,120,0.14)),"; // גשם/שלג/סופה
+  if([0,1].includes(code))return"";
+  if([2,3,45,48].includes(code))return"linear-gradient(rgba(90,90,95,0.10),rgba(90,90,95,0.10)),";
+  return"linear-gradient(rgba(70,95,120,0.14),rgba(70,95,120,0.14)),";
 }
-function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function getDayKey(d){return`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}-${String(d.getDate())}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 function getHebrewMonthLabel(y,m){
   const firstMonth=toHebrewDate(new Date(y,m,1)).monthStr;
@@ -206,7 +205,6 @@ function carryOverMidnight(prevData,todayKeyNow){
 
 function calcEarnings(sessions,activeStart=null,hourlyRate=52.19){let regularMs=0,premiumMs=0;const all=[...(sessions||[])];if(activeStart)all.push({start:activeStart,end:Date.now()});for(const s of all){const sp=splitSession(s.start,s.end);regularMs+=sp.regularMs;premiumMs+=sp.premiumMs;}const re=(regularMs/3600000)*hourlyRate,pe=(premiumMs/3600000)*hourlyRate*PREMIUM_RATE;return{regularMs,premiumMs,totalMs:regularMs+premiumMs,regularEarnings:re,premiumEarnings:pe,total:re+pe};}
 
-// ── שחזור חד-פעמי של המידע הישן שהיה מוצפן מקומית (מהגרסה עם הסיסמה המקומית) ──
 const OLD_STORAGE_KEY="work_hours_data_v3";
 const OLD_WAGE_KEY="hourly_rate_v1";
 const OLD_JOURNAL_KEY="journal_notes_v1";
@@ -296,7 +294,7 @@ function selectionToLabel(sel){
   if(count===3)return SHIFT_LABELS.btl;
   if(sel.morning&&sel.afternoon)return SHIFT_LABELS.bt;
   if(sel.afternoon&&sel.night)return SHIFT_LABELS.tl;
-  return SHIFT_LABELS.btl; // בוקר+לילה בלי צהריים - מקרה נדיר, מציגים כ"בצל"
+  return SHIFT_LABELS.btl;
 }
 function classifySession(startTs,endTs){
   if(!startTs||!endTs||endTs<=startTs)return"";
@@ -311,7 +309,7 @@ function classifySession(startTs,endTs){
     ni+=ov([dayStart+20*H,dayStart+24*H])+ov([dayStart,dayStart+5*H]);
     dayStart+=24*H;
   }
-  const THRESH=2*H; // שעתיים
+  const THRESH=2*H;
   const segs=[];
   if(mo>THRESH)segs.push("m");
   if(af>THRESH)segs.push("a");
@@ -516,9 +514,8 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
   );
 }
 
-// ── מסך התחברות / הרשמה (Firebase Authentication) ────────────────────────────
 function AuthScreen({T}){
-  const[mode,setMode]=useState("login"); // login | signup | reset
+  const[mode,setMode]=useState("login");
   const[email,setEmail]=useState("");
   const[firstName,setFirstName]=useState("");
   const[pw,setPw]=useState("");
@@ -625,7 +622,7 @@ export default function WorkHoursTracker(){
   const[expandedDay,setExpandedDay]=useState(null);
   const[manualEntry,setManualEntry]=useState(null);
   const[showWage,setShowWage]=useState(false);
-  const[user,setUser]=useState(undefined); // undefined=בטעינה, null=לא מחובר, אובייקט=מחובר
+  const[user,setUser]=useState(undefined);
   const[docLoaded,setDocLoaded]=useState(false);
   const[showRecover,setShowRecover]=useState(false);
   const[hourlyRate,setHourlyRate]=useState(52.19);
@@ -641,33 +638,46 @@ export default function WorkHoursTracker(){
   const[todayWeatherCode,setTodayWeatherCode]=useState(null);
   const[askedName,setAskedName]=useState(true);
   const[showAskName,setShowAskName]=useState(false);
+  const[isOffline,setIsOffline]=useState(typeof navigator!=="undefined"?!navigator.onLine:false);
   const T=THEMES.light;
 
   useEffect(()=>{const link=document.createElement("link");link.rel="stylesheet";link.href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap";document.head.appendChild(link);return ()=>{document.head.removeChild(link);};},[]);
   useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return ()=>clearInterval(t);},[]);
 
-  // מעקב אחרי מצב ההתחברות ל-Firebase
+  useEffect(()=>{
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    }
+  },[]);
+
+  useEffect(()=>{
+    function goOnline(){setIsOffline(false);}
+    function goOffline(){setIsOffline(true);}
+    window.addEventListener("online",goOnline);
+    window.addEventListener("offline",goOffline);
+    return ()=>{window.removeEventListener("online",goOnline);window.removeEventListener("offline",goOffline);};
+  },[]);
+
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setDocLoaded(false);});return unsub;},[]);
 
-  // האזנה בזמן אמת למסמך המשתמש ב-Firestore (מתעדכן אוטומטית מכל מכשיר)
   useEffect(()=>{
     if(!user)return;
     const ref=doc(db,"users",user.uid);
-    const unsub=onSnapshot(ref,async(snap)=>{
+    const unsub=onSnapshot(ref,{includeMetadataChanges:true},async(snap)=>{
       if(snap.exists()){
         const d=snap.data();
         setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});
         setAskedName(!!d.askedName);
-      }else{
+        setDocLoaded(true);
+      }else if(!snap.metadata.fromCache){
         try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
         setAskedName(false);
+        setDocLoaded(true);
       }
-      setDocLoaded(true);
     },()=>setDocLoaded(true));
     return unsub;
   },[user]);
 
-  // בקשה חד-פעמית לשם פרטי, למי שנרשם לפני שהוספנו את השדה הזה
   useEffect(()=>{
     if(user&&docLoaded&&!user.displayName&&!askedName)setShowAskName(true);
   },[user,docLoaded,askedName]);
@@ -684,7 +694,6 @@ export default function WorkHoursTracker(){
 
   function handleLogout(){signOut(auth);}
 
-  // אם נמצא מידע ישן במכשיר הזה (מוצפן או רגיל), מציעים לשחזר אותו לחשבון החדש
   const[showRecoverPlain,setShowRecoverPlain]=useState(false);
   useEffect(()=>{
     if(user&&docLoaded){
@@ -703,7 +712,6 @@ export default function WorkHoursTracker(){
   }
   function handleDismissRecover(){setShowRecover(false);}
 
-  // כל שינוי בנתונים, כשמחוברים, נשמר ל-Firestore (ומסונכרן אוטומטית לכל מכשיר מחובר)
   useEffect(()=>{
     if(!user||!docLoaded)return;
     const ref=doc(db,"users",user.uid);
@@ -718,8 +726,6 @@ export default function WorkHoursTracker(){
   const todayEarnings=useMemo(()=>calcEarnings(todayData.sessions,todayData.active,hourlyRate),[todayData,now,hourlyRate]);
   const monthToDateHours=useMemo(()=>{const ty=now.getFullYear(),tm=now.getMonth(),td=now.getDate();let totalMs=0,total=0;for(let i=1;i<=td;i++){const d=new Date(ty,tm,i),key=getDayKey(d),entry=data[key];if(!entry)continue;const earn=calcEarnings(entry.sessions,i===td?entry.active:null,hourlyRate);totalMs+=earn.totalMs;total+=earn.total;}return{totalMs,total};},[data,now.getFullYear(),now.getMonth(),now.getDate(),hourlyRate]);
 
-  // אם הכניסה "הועברה" מיום קודם בחצות (עדיין במשמרת רציפה), נמצא את הזמן האמיתי שבו היא התחילה —
-  // כדי שתווית "מאז" תמשיך להראות את השעה האמיתית ולא תיראה כאילו המשמרת התאפסה
   const trueActiveStart=useMemo(()=>{
     if(!todayData.active)return null;
     if(!isExactMidnight(todayData.active,now))return todayData.active;
@@ -819,6 +825,11 @@ export default function WorkHoursTracker(){
 
   return (
     <div style={{minHeight:"100vh",background:`radial-gradient(circle at 1px 1px, rgba(42,38,32,0.05) 1px, transparent 0) 0 0/16px 16px, ${T.bg}`,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+      {isOffline&&(
+        <div style={{width:"100%",background:T.gold,color:"#fff",textAlign:"center",padding:"6px 12px",fontSize:12,fontWeight:600}}>
+          📡 אין חיבור לאינטרנט — עובד במצב אופליין, השינויים יסתנכרנו כשהחיבור יחזור
+        </div>
+      )}
       {showAskName&&<AskNameModal onSubmit={handleSetDisplayName} onSkip={handleSkipAskName} T={T}/>}
       {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
@@ -1056,6 +1067,7 @@ export default function WorkHoursTracker(){
             {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם המשולב הנכון לבד (למשל בוקר+צהריים = \"בצ\")."},
             {title:"🆘 תמיכה",body:"כפתור \"תמיכה\" בסרגל העליון פותח שיחת וואטסאפ עם הודעה מוכנה מראש — לכל תקלה, שאלה או רעיון."},
             {title:"🚪 יציאה",body:"כפתור \"יציאה\" בסרגל העליון מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה — ואם שכחת אותה, יש קישור \"שכחת סיסמה?\" במסך ההתחברות."},
+            {title:"📡 מצב אופליין",body:"האפליקציה עובדת גם בלי אינטרנט: אפשר להיכנס/לצאת, להוסיף הערות ולערוך משמרות, ופס אפור למעלה יזכיר לך שאתה אופליין. ברגע שהחיבור חוזר, הכל מסתנכרן אוטומטית לענן. חשוב: כדי שהמידע כבר יהיה שמור מקומית, כדאי לפתוח את האפליקציה פעם אחת עם אינטרנט אחרי כל התקנה חדשה של הדפדפן."},
           ].map((s,i)=>(
             <div key={i} style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:"14px 16px",marginBottom:10}}>
               <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>{s.title}</div>
