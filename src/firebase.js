@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCVRVvrEyBHSGUQT8Ls8dwHLazh3ttjbWY",
@@ -13,4 +13,9 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// מפעילים קאש מקומי (IndexedDB) ל-Firestore — כך שקריאה/כתיבה של המידע עובדות
+// גם בלי אינטרנט, ומסתנכרנות אוטומטית לענן ברגע שהחיבור חוזר.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) }),
+});
