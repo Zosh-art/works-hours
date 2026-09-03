@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updateProfile } from "firebase/auth";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, getDocFromCache } from "firebase/firestore";
 
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
@@ -817,6 +817,26 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:type};
     });
   }
+  const[cacheCheckResult,setCacheCheckResult]=useState("");
+  async function handleCheckLocalCache(){
+    setCacheCheckResult("בודק...");
+    try{
+      const ref=doc(db,"users",user.uid);
+      const snap=await getDocFromCache(ref);
+      if(!snap.exists()){setCacheCheckResult("אין שום דבר בקאש המקומי של המכשיר הזה.");return;}
+      const cachedData=snap.data()?.data||{};
+      const serverDates=Object.keys(data).sort();
+      const cacheDates=Object.keys(cachedData).sort();
+      const onlyInCache=cacheDates.filter(k=>!data[k]);
+      if(onlyInCache.length===0){
+        setCacheCheckResult(`הקאש המקומי זהה למה שכבר רואים באפליקציה (${cacheDates.length} ימים בשניהם) — אין כאן מידע נוסף לשחזור.`);
+      }else{
+        setCacheCheckResult(`נמצאו ${onlyInCache.length} ימים בקאש המקומי שלא קיימים באפליקציה כרגע: ${onlyInCache.join(", ")}`);
+      }
+    }catch(err){
+      setCacheCheckResult("לא הצלחתי לבדוק את הקאש המקומי: "+(err?.message||"שגיאה לא ידועה"));
+    }
+  }
 
   const isFriOrSat=now.getDay()===5||now.getDay()===6;
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
@@ -1108,6 +1128,13 @@ export default function WorkHoursTracker(){
           <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
             <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
             <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
+          </div>
+
+          <div style={{background:T.accentLight,border:`1px solid ${T.accent}`,borderRadius:14,padding:"14px 16px",marginTop:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🔍 בדיקת קאש מקומי (זמני)</div>
+            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>כלי חד-פעמי לבדוק אם יש במכשיר הזה מידע שמור מקומית שלא מופיע כרגע באפליקציה. אפשר להסיר את הכפתור הזה בהמשך.</div>
+            <button onClick={handleCheckLocalCache} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:cacheCheckResult?8:0}}>בדוק קאש מקומי</button>
+            {cacheCheckResult&&<div style={{fontSize:12,color:T.text,lineHeight:1.6,background:T.surface,borderRadius:8,padding:"10px 12px"}}>{cacheCheckResult}</div>}
           </div>
           <div style={{height:16}}/>
         </div>
