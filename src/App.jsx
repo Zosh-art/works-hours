@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updateProfile } from "firebase/auth";
-import { doc, onSnapshot, setDoc, getDocFromCache } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
@@ -650,6 +650,8 @@ export default function WorkHoursTracker(){
   const[showAskName,setShowAskName]=useState(false);
   const[isOffline,setIsOffline]=useState(typeof navigator!=="undefined"?!navigator.onLine:false);
   const skipNextSaveRef=useRef(false);
+  const maxSeenDayCountRef=useRef(0);
+  const[dataProtectionWarning,setDataProtectionWarning]=useState("");
   const T=THEMES.light;
 
   useEffect(()=>{const link=document.createElement("link");link.rel="stylesheet";link.href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap";document.head.appendChild(link);return ()=>{document.head.removeChild(link);};},[]);
@@ -678,9 +680,12 @@ export default function WorkHoursTracker(){
       skipNextSaveRef.current=true; // כל עדכון שמגיע כאן (מהשרת/מהקאש) לא "נכתב בחזרה" על ידי אפקט השמירה
       if(snap.exists()){
         const d=snap.data();
-        setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});setDayTypes(d.dayTypes||{});
+        const serverData=d.data||{};
+        setData(serverData);setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});setDayTypes(d.dayTypes||{});
         setAskedName(!!d.askedName);
         setDocLoaded(true);
+        const dayCount=Object.keys(serverData).length;
+        if(!snap.metadata.fromCache&&dayCount>(maxSeenDayCountRef.current||0))maxSeenDayCountRef.current=dayCount;
       }else{
         if(!snap.metadata.fromCache){
           try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
@@ -729,8 +734,19 @@ export default function WorkHoursTracker(){
   useEffect(()=>{
     if(!user||!docLoaded)return;
     if(skipNextSaveRef.current){skipNextSaveRef.current=false;return;}
+    const currentDayCount=Object.keys(data).length;
+    // "מגן קריסה": אם המידע שעומד להישמר מכיל פתאום הרבה פחות ימים ממה שכבר ראינו בוודאות מהשרת —
+    // זה בדיוק התבנית שגרמה לאובדן המידע בעבר. עוצרים את השמירה במקום לדרוס בשקט.
+    if(maxSeenDayCountRef.current>0&&currentDayCount<maxSeenDayCountRef.current-1){
+      setDataProtectionWarning(`זוהתה ירידה חריגה בכמות הימים השמורים (מ-${maxSeenDayCountRef.current} ל-${currentDayCount}) — השמירה האוטומטית הושהתה כדי להגן על המידע שלך. אל תמשיך להשתמש באפליקציה, ופנה לתמיכה (כפתור הוואטסאפ למעלה) לפני שממשיכים.`);
+      return; // לא שומרים — עוצרים את הדריסה האפשרית
+    }
     const ref=doc(db,"users",user.uid);
     setDoc(ref,{data,hourlyRate,journalNotes,dayTypes},{merge:true}).catch(()=>{});
+    // גיבוי יומי אוטומטי: תמונת מצב אחת ליום (נדרסת במהלך היום, נשמרת קבועה אחריו) —
+    // כך שאם משהו ישתבש, יש תמיד נקודת שחזור ידנית מהיום הקודם לכל היותר
+    const backupRef=doc(db,"users",user.uid,"backups",getDayKey(new Date()));
+    setDoc(backupRef,{data,hourlyRate,journalNotes,dayTypes,savedAt:Date.now()}).catch(()=>{});
   },[data,hourlyRate,journalNotes,dayTypes,user,docLoaded]);
 
   const todayKey=getDayKey(now);
@@ -817,26 +833,6 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:type};
     });
   }
-  const[cacheCheckResult,setCacheCheckResult]=useState("");
-  async function handleCheckLocalCache(){
-    setCacheCheckResult("בודק...");
-    try{
-      const ref=doc(db,"users",user.uid);
-      const snap=await getDocFromCache(ref);
-      if(!snap.exists()){setCacheCheckResult("אין שום דבר בקאש המקומי של המכשיר הזה.");return;}
-      const cachedData=snap.data()?.data||{};
-      const serverDates=Object.keys(data).sort();
-      const cacheDates=Object.keys(cachedData).sort();
-      const onlyInCache=cacheDates.filter(k=>!data[k]);
-      if(onlyInCache.length===0){
-        setCacheCheckResult(`הקאש המקומי זהה למה שכבר רואים באפליקציה (${cacheDates.length} ימים בשניהם) — אין כאן מידע נוסף לשחזור.`);
-      }else{
-        setCacheCheckResult(`נמצאו ${onlyInCache.length} ימים בקאש המקומי שלא קיימים באפליקציה כרגע: ${onlyInCache.join(", ")}`);
-      }
-    }catch(err){
-      setCacheCheckResult("לא הצלחתי לבדוק את הקאש המקומי: "+(err?.message||"שגיאה לא ידועה"));
-    }
-  }
 
   const isFriOrSat=now.getDay()===5||now.getDay()===6;
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
@@ -850,10 +846,110 @@ export default function WorkHoursTracker(){
   const days=useMemo(()=>Array.from({length:daysInMonth},(_,i)=>{const d=new Date(year,month,i+1),key=getDayKey(d),entry=data[key];const earnings=entry?calcEarnings(entry.sessions,entry.active,hourlyRate):{regularMs:0,premiumMs:0,totalMs:0,regularEarnings:0,premiumEarnings:0,total:0};return{date:d,key,earnings,entry};}),[data,year,month,daysInMonth,hourlyRate,now]);
   const monthTotals=useMemo(()=>days.reduce((a,d)=>({totalMs:a.totalMs+d.earnings.totalMs,premiumMs:a.premiumMs+d.earnings.premiumMs,total:a.total+d.earnings.total,regularEarnings:a.regularEarnings+d.earnings.regularEarnings,premiumEarnings:a.premiumEarnings+d.earnings.premiumEarnings}),{totalMs:0,premiumMs:0,total:0,regularEarnings:0,premiumEarnings:0}),[days]);
   const maxDayMs=Math.max(...days.map(d=>d.earnings.totalMs),1);
+  const insights=useMemo(()=>{
+    let bestDay=null;
+    for(const d of days){if(d.earnings.totalMs>0&&(!bestDay||d.earnings.totalMs>bestDay.earnings.totalMs))bestDay=d;}
+    const avgWeeklyMs=monthTotals.totalMs/(daysInMonth/7);
+    const monthMsMap={};
+    for(const key of Object.keys(data)){
+      const[y,m]=key.split("-").map(Number);
+      const mk=`${y}-${m}`;
+      const entry=data[key];
+      const earn=calcEarnings(entry.sessions,entry.active,hourlyRate);
+      monthMsMap[mk]=(monthMsMap[mk]||0)+earn.totalMs;
+    }
+    let bestMonthKey=null,bestMonthMs=0;
+    for(const[mk,ms] of Object.entries(monthMsMap)){if(ms>bestMonthMs){bestMonthMs=ms;bestMonthKey=mk;}}
+    let bestMonthLabel="";
+    if(bestMonthKey){const[by,bm]=bestMonthKey.split("-").map(Number);bestMonthLabel=`${MONTH_NAMES[bm]} ${by}`;}
+    return{bestDay,avgWeeklyMs,bestMonthLabel,bestMonthMs};
+  },[days,monthTotals,daysInMonth,data,hourlyRate]);
   useEffect(()=>{const result={};const jobs=[];for(let i=1;i<=daysInMonth;i++){const d=new Date(year,month,i);if(d.getDay()!==6)continue;const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;jobs.push(fetchParasha(d).then(p=>{if(p)result[key]=p;}));}Promise.all(jobs).then(()=>setSummaryParashas(prev=>({...prev,...result})));},[year,month]);
 
   const secDeg=now.getSeconds()*6,minDeg=now.getMinutes()*6+now.getSeconds()*0.1,hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
   const prevMonth=new Date(year,month-1,1),nextMonth=new Date(year,month+1,1);
+
+  function handleExportCSV(){
+    const rows=[["תאריך","יום","שעות עבודה","שכר רגיל","תוספת שבת/חג","סה\"כ"]];
+    days.forEach(({date,earnings})=>{
+      if(earnings.totalMs<=0)return;
+      rows.push([
+        `${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`,
+        DAY_NAMES[date.getDay()],
+        formatTime(earnings.totalMs),
+        earnings.regularEarnings.toFixed(2),
+        earnings.premiumEarnings.toFixed(2),
+        earnings.total.toFixed(2),
+      ]);
+    });
+    rows.push(["","","","","סה\"כ חודש",monthTotals.total.toFixed(2)]);
+    const csv="\uFEFF"+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`דוח-שעות-${MONTH_NAMES[month]}-${year}.csv`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportPDF(){
+    const rowsHtml=days.filter(d=>d.earnings.totalMs>0).map(({date,earnings})=>`
+      <tr><td>${date.getDate()}/${date.getMonth()+1}</td><td>${DAY_NAMES[date.getDay()]}</td><td>${formatTime(earnings.totalMs)}</td><td>${formatMoney(earnings.total)}</td></tr>
+    `).join("");
+    const html=`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>דוח שעות - ${MONTH_NAMES[month]} ${year}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:24px;direction:rtl;color:#2A2620;}
+      h1{color:#A23B2E;margin-bottom:4px;}
+      .sub{color:#847A68;margin-bottom:16px;}
+      table{width:100%;border-collapse:collapse;margin-top:12px;}
+      th,td{border:1px solid #DED5C0;padding:8px 10px;text-align:center;font-size:14px;}
+      th{background:#F0E9D8;}
+      tfoot td{font-weight:bold;background:#FDE8CC;}
+    </style></head><body>
+    <h1>דוח שעות</h1>
+    <div class="sub">${MONTH_NAMES[month]} ${year}</div>
+    <table><thead><tr><th>תאריך</th><th>יום</th><th>שעות</th><th>שכר</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+    <tfoot><tr><td colspan="2">סה"כ</td><td>${formatTime(monthTotals.totalMs)}</td><td>${formatMoney(monthTotals.total)}</td></tr></tfoot>
+    </table>
+    </body></html>`;
+    const w=window.open("","_blank");
+    if(!w)return;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(()=>w.print(),300);
+  }
+
+  async function handleShareCard(){
+    const canvas=document.createElement("canvas");
+    canvas.width=800;canvas.height=800;
+    const ctx=canvas.getContext("2d");
+    const grad=ctx.createLinearGradient(0,0,800,800);
+    grad.addColorStop(0,"#A23B2E");grad.addColorStop(1,"#7A2A22");
+    ctx.fillStyle=grad;ctx.fillRect(0,0,800,800);
+    ctx.fillStyle="#F6F1E7";ctx.textAlign="center";
+    try{ctx.direction="rtl";}catch{}
+    ctx.font="bold 40px Arial";ctx.fillText("דוח שעות",400,120);
+    ctx.font="30px Arial";ctx.fillText(`${MONTH_NAMES[month]} ${year}`,400,170);
+    ctx.font="bold 90px Arial";ctx.fillText(formatTime(monthTotals.totalMs),400,380);
+    ctx.font="28px Arial";ctx.fillText("שעות עבודה",400,425);
+    ctx.font="bold 70px Arial";ctx.fillText(formatMoney(monthTotals.total),400,570);
+    ctx.font="28px Arial";ctx.fillText('סה"כ הרווחתי',400,615);
+    canvas.toBlob(async(blob)=>{
+      if(!blob)return;
+      const file=new File([blob],"דוח-שעות.png",{type:"image/png"});
+      const shareText=`עבדתי ${formatTime(monthTotals.totalMs)} שעות ב${MONTH_NAMES[month]} והרווחתי ${formatMoney(monthTotals.total)}! 💪`;
+      if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+        try{await navigator.share({files:[file],title:"דוח שעות",text:shareText});}catch{}
+      }else{
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=url;a.download="דוח-שעות.png";
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    },"image/png");
+  }
 
   const{year:jYear,month:jMonth}=journalMonth;
   const jDaysInMonth=getDaysInMonth(jYear,jMonth);
@@ -866,6 +962,11 @@ export default function WorkHoursTracker(){
 
   return (
     <div style={{minHeight:"100vh",background:`radial-gradient(circle at 1px 1px, rgba(42,38,32,0.05) 1px, transparent 0) 0 0/16px 16px, ${T.bg}`,color:T.text,fontFamily:"'Rubik','Segoe UI',system-ui,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+      {dataProtectionWarning&&(
+        <div style={{width:"100%",background:T.red,color:"#fff",textAlign:"center",padding:"12px 16px",fontSize:13,fontWeight:700,lineHeight:1.6}}>
+          🛑 {dataProtectionWarning}
+        </div>
+      )}
       {isOffline&&(
         <div style={{width:"100%",background:T.gold,color:"#fff",textAlign:"center",padding:"6px 12px",fontSize:12,fontWeight:600}}>
           📡 אין חיבור לאינטרנט — עובד במצב אופליין, השינויים יסתנכרנו כשהחיבור יחזור
@@ -992,6 +1093,21 @@ export default function WorkHoursTracker(){
             <div><div style={{fontSize:18,fontWeight:700,color:T.violet}}>{formatMoney(monthTotals.premiumEarnings)}</div><div style={{fontSize:10,color:T.textFaint,marginTop:3}}>בונוס ×1.5</div></div>
           </div>
 
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+            <button onClick={handleExportCSV} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 4px",color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:600,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:16}}>📊</span>ייצוא CSV</button>
+            <button onClick={handleExportPDF} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 4px",color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:600,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:16}}>🖨️</span>הדפסה/PDF</button>
+            <button onClick={handleShareCard} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 4px",color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:600,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><span style={{fontSize:16}}>📤</span>שיתוף</button>
+          </div>
+
+          <div style={{background:T.accentLight,borderRadius:16,padding:"14px",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8}}>💡 תובנות</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:T.textSub}}>
+              <div>ממוצע שבועי החודש: <span style={{fontWeight:700,color:T.accent}}>{formatTime(insights.avgWeeklyMs)}</span> שעות</div>
+              {insights.bestDay&&<div>היום הכי עמוס החודש: <span style={{fontWeight:700,color:T.accent}}>{insights.bestDay.date.getDate()} {MONTH_NAMES[insights.bestDay.date.getMonth()]}</span> ({formatTime(insights.bestDay.earnings.totalMs)} שעות)</div>}
+              {insights.bestMonthLabel&&<div>החודש הכי רווחי אי פעם: <span style={{fontWeight:700,color:T.accent}}>{insights.bestMonthLabel}</span> ({formatTime(insights.bestMonthMs)} שעות)</div>}
+            </div>
+          </div>
+
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             {days.map(({date,earnings,entry})=>{
               const isToday=getDayKey(date)===getDayKey(new Date());
@@ -1090,57 +1206,4 @@ export default function WorkHoursTracker(){
                   {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
                   {parasha&&<span style={{fontSize:10,color:T.plum,textAlign:"center",lineHeight:1.2,fontWeight:700,width:"100%"}}>{parasha}</span>}
                   <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                    {dType&&<span style={{fontSize:16}}>{dType==="vacation"?"🏖️":"🤒"}</span>}
-                    {worked&&sessions.map((s,si)=>(<span key={si} style={{fontSize:10,color:T.sage,fontWeight:800,textAlign:"center",lineHeight:1.3}}>{s.shiftLabel||classifySession(s.start,s.end)}</span>))}
-                  </div>
-                  {notesCount>0&&<div style={{width:"100%",background:T.accentLight,borderRadius:5,padding:"1px 4px",marginTop:2}}><div style={{fontSize:7,color:T.accent,fontWeight:600,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {notes[0].text}{notesCount>1?` +${notesCount-1}`:""}</div></div>}
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{marginTop:16,fontSize:11,color:T.textFaint,textAlign:"center",lineHeight:1.6}}>היומן מתמלא אוטומטית לפי המשמרות שנרשמו בטאב "סיכום" (כניסה/יציאה או הזנה ידנית) — אין צורך להזין כאן שוב. לחיצה על יום מציגה את המשמרות והערות, ומאפשרת להוסיף הערה ידנית או לערוך את הסיווג</div>
-          <div style={{height:16}}/>
-        </div>
-      )}
-
-      {view==="help"&&(
-        <div style={{width:"100%",maxWidth:480,padding:"16px 20px"}}>
-          <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:16,textAlign:"center"}}>איך האפליקציה עובדת</div>
-
-          {[
-            {title:"🏠 ראשי",body:"השעון הגדול באמצע — לחיצה על הכפתור העגול מתחילה משמרת (\"כניסה\"), ולחיצה נוספת מסיימת אותה (\"יציאה\"). למעלה מוצגות שעות היום והחודש עד כה, וכשמחוברים רואים פס עדין שממלא את עצמו לפי כמה מהיום כבר עבר. הרקע משתנה בעדינות לאורך היום (ולפי מזג האוויר), ועובר למראה כהה קבוע עם זהב בזמן שבת/חג — שם מסתמנות שעות שמזכות בתוספת ×1.5."},
-            {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך אותן או להזין שעות ידנית ליום שבו שכחת להפעיל את השעון."},
-            {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
-            {title:"📅 יומן",body:"לוח חודשי שמתמלא אוטומטית לפי המשמרות שנרשמו בטאב \"סיכום\" (אין צורך להזין כאן שוב) — עם התאריך העברי, פרשת השבוע (רק בשבתות), וחגים. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד (🔗) כמה משמרות נפרדות לאחת, או למחוק (🗑️) משמרת שגויה."},
-            {title:"🌙 איך משמרת מסווגת",body:"המשמרת מסווגת לפי כמה שעות היא חופפת עם כל פרק ביום: בוקר (05:00–14:00), צהריים (14:00–20:00), לילה (20:00–05:00). אם היא חופפת משמעותית (יותר משעתיים) עם שני פרקים, היא מקבלת שם משולב: בצ (בוקר+צהריים), צל (צהריים+לילה), בצל (כל השלושה)."},
-            {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם המשולב הנכון לבד (למשל בוקר+צהריים = \"בצ\")."},
-            {title:"🆘 תמיכה",body:"כפתור \"תמיכה\" בסרגל העליון פותח שיחת וואטסאפ עם הודעה מוכנה מראש — לכל תקלה, שאלה או רעיון."},
-            {title:"🚪 יציאה",body:"כפתור \"יציאה\" בסרגל העליון מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה — ואם שכחת אותה, יש קישור \"שכחת סיסמה?\" במסך ההתחברות."},
-            {title:"📡 מצב אופליין",body:"האפליקציה עובדת גם בלי אינטרנט: אפשר להיכנס/לצאת, להוסיף הערות ולערוך משמרות, ופס אפור למעלה יזכיר לך שאתה אופליין. ברגע שהחיבור חוזר, הכל מסתנכרן אוטומטית לענן. חשוב: כדי שהמידע כבר יהיה שמור מקומית, כדאי לפתוח את האפליקציה פעם אחת עם אינטרנט אחרי כל התקנה חדשה של הדפדפן."},
-          ].map((s,i)=>(
-            <div key={i} style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:"14px 16px",marginBottom:10}}>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>{s.title}</div>
-              <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,whiteSpace:"pre-line"}}>{s.body}</div>
-            </div>
-          ))}
-
-          <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
-            <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
-          </div>
-
-          <div style={{background:T.accentLight,border:`1px solid ${T.accent}`,borderRadius:14,padding:"14px 16px",marginTop:10}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🔍 בדיקת קאש מקומי (זמני)</div>
-            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>כלי חד-פעמי לבדוק אם יש במכשיר הזה מידע שמור מקומית שלא מופיע כרגע באפליקציה. אפשר להסיר את הכפתור הזה בהמשך.</div>
-            <button onClick={handleCheckLocalCache} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:cacheCheckResult?8:0}}>בדוק קאש מקומי</button>
-            {cacheCheckResult&&<div style={{fontSize:12,color:T.text,lineHeight:1.6,background:T.surface,borderRadius:8,padding:"10px 12px"}}>{cacheCheckResult}</div>}
-          </div>
-          <div style={{height:16}}/>
-        </div>
-      )}
-
-      <BottomNav view={view} setView={setView} onWage={()=>setShowWage(true)} hourlyRate={hourlyRate} T={T}/>
-    </div>
-  );
-}
+                    {dType&&<span style={{fontSize:16}}>{dType==="vacation"
