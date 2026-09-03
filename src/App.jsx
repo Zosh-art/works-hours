@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updateProfile } from "firebase/auth";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
@@ -403,7 +403,7 @@ function RecoverOldDataModal({isPlain,onRecover,onDismiss,T}){
 function WageModal({currentRate,onSave,onClose,T}){const preset=WAGE_PRESETS.find(p=>p.value===currentRate);const[selected,setSelected]=useState(preset?preset.value:null);const[customVal,setCustomVal]=useState(preset?"":String(currentRate));function handleSave(){const rate=selected!==null?selected:parseFloat(customVal.replace(",","."));if(!rate||isNaN(rate)||rate<=0)return;onSave(rate);}
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:360,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>תעריף שעתי</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div><div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>{WAGE_PRESETS.map(p=>(<button key={p.label} onClick={()=>{setSelected(p.value);if(p.value)setCustomVal("");}} style={{padding:"14px 18px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"right",background:(p.value!==null?selected===p.value:selected===null)?T.accent:T.surface2,color:(p.value!==null?selected===p.value:selected===null)?"#fff":T.textSub,fontWeight:700,fontSize:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{p.value?`₪${p.label}`:p.label}</span>{(p.value!==null?selected===p.value:selected===null)&&<span>✓</span>}</button>))}</div>{selected===null&&<div style={{marginBottom:16}}><div style={{fontSize:12,color:T.textFaint,marginBottom:6}}>הזן תעריף ידנית</div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.gold,fontWeight:700,fontSize:18}}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e=>setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px",color:T.text,fontSize:18,outline:"none"}}/></div></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
 
-function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,onDeleteNote,onSetShiftOverride,onMergeSessions,onDeleteSession,onClose,T}){
+function JournalDayModal({date,sessions,notes,parasha,specialShabbat,dayType,onSetDayType,onAddNote,onDeleteNote,onSetShiftOverride,onMergeSessions,onDeleteSession,onClose,T}){
   const[text,setText]=useState("");
   const[editingStart,setEditingStart]=useState(null);
   const[editSelection,setEditSelection]=useState({morning:false,afternoon:false,night:false});
@@ -428,6 +428,15 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,onAddNote,o
             {parasha&&<div style={{fontSize:12,color:T.plum,marginTop:3,fontWeight:600}}>{formatParashaLabel(parasha,specialShabbat||"")} ✦</div>}
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button>
+        </div>
+
+        <div style={{display:"flex",gap:6,marginBottom:16}}>
+          {[{key:"vacation",lbl:"🏖️ חופשה"},{key:"sick",lbl:"🤒 מחלה"}].map(opt=>{
+            const active=dayType===opt.key;
+            return(
+              <button key={opt.key} onClick={()=>onSetDayType(active?null:opt.key)} style={{flex:1,padding:"8px 10px",borderRadius:10,border:active?"none":`1px solid ${T.border}`,cursor:"pointer",fontSize:12,fontWeight:700,background:active?T.accent:T.surface2,color:active?"#fff":T.textSub}}>{opt.lbl}</button>
+            );
+          })}
         </div>
 
         {sessions.length>0&&(
@@ -630,6 +639,7 @@ export default function WorkHoursTracker(){
   const[summaryMonth,setSummaryMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
   const[journalMonth,setJournalMonth]=useState(()=>{const d=new Date();return{year:d.getFullYear(),month:d.getMonth()};});
   const[journalNotes,setJournalNotes]=useState({});
+  const[dayTypes,setDayTypes]=useState({});
   const[journalDay,setJournalDay]=useState(null);
   const[todayParasha,setTodayParasha]=useState("");
   const[summaryParashas,setSummaryParashas]=useState({});
@@ -639,6 +649,7 @@ export default function WorkHoursTracker(){
   const[askedName,setAskedName]=useState(true);
   const[showAskName,setShowAskName]=useState(false);
   const[isOffline,setIsOffline]=useState(typeof navigator!=="undefined"?!navigator.onLine:false);
+  const skipNextSaveRef=useRef(false);
   const T=THEMES.light;
 
   useEffect(()=>{const link=document.createElement("link");link.rel="stylesheet";link.href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap";document.head.appendChild(link);return ()=>{document.head.removeChild(link);};},[]);
@@ -664,15 +675,18 @@ export default function WorkHoursTracker(){
     if(!user)return;
     const ref=doc(db,"users",user.uid);
     const unsub=onSnapshot(ref,{includeMetadataChanges:true},async(snap)=>{
+      skipNextSaveRef.current=true; // כל עדכון שמגיע כאן (מהשרת/מהקאש) לא "נכתב בחזרה" על ידי אפקט השמירה
       if(snap.exists()){
         const d=snap.data();
-        setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});
+        setData(d.data||{});setHourlyRate(d.hourlyRate||52.19);setJournalNotes(d.journalNotes||{});setDayTypes(d.dayTypes||{});
         setAskedName(!!d.askedName);
         setDocLoaded(true);
-      }else if(!snap.metadata.fromCache){
-        try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
-        setAskedName(false);
-        setDocLoaded(true);
+      }else{
+        if(!snap.metadata.fromCache){
+          try{await setDoc(ref,{data:{},hourlyRate:52.19,journalNotes:{}});}catch{}
+          setAskedName(false);
+        }
+        setDocLoaded(true); // תמיד משחררים את המסך, גם כשעדיין מחכים לאישור מהשרת שהמסמך לא קיים
       }
     },()=>setDocLoaded(true));
     return unsub;
@@ -714,9 +728,10 @@ export default function WorkHoursTracker(){
 
   useEffect(()=>{
     if(!user||!docLoaded)return;
+    if(skipNextSaveRef.current){skipNextSaveRef.current=false;return;}
     const ref=doc(db,"users",user.uid);
-    setDoc(ref,{data,hourlyRate,journalNotes},{merge:true}).catch(()=>{});
-  },[data,hourlyRate,journalNotes,user,docLoaded]);
+    setDoc(ref,{data,hourlyRate,journalNotes,dayTypes},{merge:true}).catch(()=>{});
+  },[data,hourlyRate,journalNotes,dayTypes,user,docLoaded]);
 
   const todayKey=getDayKey(now);
   useEffect(()=>{if(!docLoaded)return;setData((prev)=>carryOverMidnight(prev,todayKey));},[todayKey,docLoaded]);
@@ -796,6 +811,12 @@ export default function WorkHoursTracker(){
       return{...prev,[dateKey]:{...entry,sessions}};
     });
   }
+  function handleSetDayType(dateKey,type){
+    setDayTypes((prev)=>{
+      if(!type){const next={...prev};delete next[dateKey];return next;}
+      return{...prev,[dateKey]:type};
+    });
+  }
 
   const isFriOrSat=now.getDay()===5||now.getDay()===6;
   const todayHebrew=useMemo(()=>toHebrewDate(now),[todayKey]);
@@ -834,7 +855,7 @@ export default function WorkHoursTracker(){
       {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
-      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const jParasha=isSat?journalParashas[jkFull]:"";const specialShabbat=isSat?getSpecialShabbat(journalDay,jParasha):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={jParasha} specialShabbat={specialShabbat} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
+      {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const jParasha=isSat?journalParashas[jkFull]:"";const specialShabbat=isSat?getSpecialShabbat(journalDay,jParasha):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={jParasha} specialShabbat={specialShabbat} dayType={dayTypes[jk]||null} onSetDayType={type=>handleSetDayType(jk,type)} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
 
       <div style={{width:"100%",maxWidth:480,padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:19,fontWeight:800,color:T.accent,letterSpacing:-0.5}}>דוח שעות</span>
@@ -863,8 +884,15 @@ export default function WorkHoursTracker(){
         const heroAccent=heroNight?T.moonGold:T.accent;
         const displayName=user?.displayName||user?.email?.split("@")[0]||"";
         const shiftProgress=isCheckedIn&&trueActiveStart?Math.max(0,Math.min(1,(now.getTime()-trueActiveStart)/(8*3600000))):0;
+        const hoursActive=isCheckedIn&&trueActiveStart?(now.getTime()-trueActiveStart)/3600000:0;
         return (
         <div style={{width:"100%",maxWidth:480,padding:"18px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
+          {hoursActive>10&&(
+            <div style={{width:"100%",background:T.accentLight,border:`1px solid ${T.accent}`,borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:18}}>⏰</span>
+              <span style={{fontSize:12,color:T.text,fontWeight:600}}>את/ה מחובר/ת כבר {formatTime(hoursActive*3600000)} שעות — שכחת לצאת?</span>
+            </div>
+          )}
           <div style={{width:"100%",background:heroCardBg,borderRadius:16,padding:"16px 18px",position:"relative",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,transition:"background 1.2s ease"}}>
             <div style={{flex:1,position:"relative"}}>
               {displayName&&<div style={{fontSize:13,fontWeight:700,color:heroAccent,marginBottom:2}}>{getGreeting(now.getHours())}, {displayName} 👋</div>}
@@ -1032,8 +1060,9 @@ export default function WorkHoursTracker(){
               const notes=journalNotes[key]||[];
               const notesCount=notes.length;
               const worked=sessions.length>0;
+              const dType=dayTypes[key];
               return (
-                <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:holidayInfo?T.plumLight:T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
+                <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:dType?T.accentLight:holidayInfo?T.plumLight:T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
                   <div style={{display:"flex",alignItems:"baseline",gap:3}}>
                     <span style={{fontSize:12,fontWeight:700,color:isToday?T.accent:T.textSub}}>{date.getDate()}</span>
                     {hebrewDate.dayStr&&<span style={{fontSize:10,fontWeight:600,color:T.textMuted,lineHeight:1.1}}>{hebrewDate.dayStr}</span>}
@@ -1041,6 +1070,7 @@ export default function WorkHoursTracker(){
                   {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
                   {parasha&&<span style={{fontSize:10,color:T.plum,textAlign:"center",lineHeight:1.2,fontWeight:700,width:"100%"}}>{parasha}</span>}
                   <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                    {dType&&<span style={{fontSize:16}}>{dType==="vacation"?"🏖️":"🤒"}</span>}
                     {worked&&sessions.map((s,si)=>(<span key={si} style={{fontSize:10,color:T.sage,fontWeight:800,textAlign:"center",lineHeight:1.3}}>{s.shiftLabel||classifySession(s.start,s.end)}</span>))}
                   </div>
                   {notesCount>0&&<div style={{width:"100%",background:T.accentLight,borderRadius:5,padding:"1px 4px",marginTop:2}}><div style={{fontSize:7,color:T.accent,fontWeight:600,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {notes[0].text}{notesCount>1?` +${notesCount-1}`:""}</div></div>}
