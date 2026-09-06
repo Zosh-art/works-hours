@@ -97,7 +97,7 @@ function formatParashaLabel(name,special){if(!name)return"";return special?`${na
 function getSaturdayOf(date){const d=new Date(date),day=d.getDay();if(day===6)return d;if(day===5){d.setDate(d.getDate()+1);return d;}return null;}
 
 const THEMES={
-  light:{bg:"#F6F1E7",surface:"#FCFAF3",surface2:"#F0E9D8",surface3:"#E8DFC8",border:"#DED5C0",border2:"#C9BC9F",text:"#2A2620",textSub:"#5C5346",textMuted:"#847A68",textFaint:"#AFA48D",accent:"#A23B2E",accentLight:"#F3DCD6",gold:"#9C7A1E",green:"#2F5233",red:"#7A2A22",violet:"#3D3A6B",plum:"#95566A",plumLight:"#F2E2E3",sage:"#7C9473",clockFace:"#FCFAF3",clockRing:"#DED5C0",clockTick:"#C9BC9F",clockHour:"#2A2620",clockMin:"#5C5346",todayBg:"#F0E9D8",todayBorder:"#A23B2E",expandedBg:"#F8F4EA",modalOverlay:"rgba(30,22,14,0.5)",navBg:"#FCFAF3",nightBg:"#212B3D",nightSurface:"#283449",nightInk:"#E9E4D8",nightInkSub:"#AEB4C4",nightRing:"#3B4863",moonGold:"#C9A227"},
+  light:{bg:"#F6F1E7",surface:"#FCFAF3",surface2:"#F0E9D8",surface3:"#E8DFC8",border:"#DED5C0",border2:"#C9BC9F",text:"#2A2620",textSub:"#5C5346",textMuted:"#847A68",textFaint:"#AFA48D",accent:"#A23B2E",accentLight:"#F3DCD6",gold:"#9C7A1E",green:"#2F5233",red:"#7A2A22",violet:"#3D3A6B",plum:"#95566A",plumLight:"#F2E2E3",sage:"#7C9473",gray:"#7A7873",grayLight:"#EAE8E2",clockFace:"#FCFAF3",clockRing:"#DED5C0",clockTick:"#C9BC9F",clockHour:"#2A2620",clockMin:"#5C5346",todayBg:"#F0E9D8",todayBorder:"#A23B2E",expandedBg:"#F8F4EA",modalOverlay:"rgba(30,22,14,0.5)",navBg:"#FCFAF3",nightBg:"#212B3D",nightSurface:"#283449",nightInk:"#E9E4D8",nightInkSub:"#AEB4C4",nightRing:"#3B4863",moonGold:"#C9A227"},
 };
 
 function getSunsetIL(year,month,day){const lat=32.0853,lon=34.7818;function calcJD(y,mo,d){if(mo<=2){y-=1;mo+=12;}const A=Math.floor(y/100),B=2-A+Math.floor(A/4);return Math.floor(365.25*(y+4716))+Math.floor(30.6001*(mo+1))+d+B-1524.5;}const JD=calcJD(year,month,day),T=(JD-2451545.0)/36525.0;const L0=(280.46646+T*(36000.76983+T*0.0003032))%360;const M=(357.52911+T*(35999.05029-0.0001537*T))*Math.PI/180;const C=(1.914602-T*(0.004817+0.000014*T))*Math.sin(M)+(0.019993-0.000101*T)*Math.sin(2*M)+0.000289*Math.sin(3*M);const sunLon=(L0+C)*Math.PI/180,e=0.016708634-T*(0.000042037+0.0000001267*T);const eps=(23.439291111-T*(0.013004167+T*(0.00000164-T*0.000000504)))*Math.PI/180;const dec=Math.asin(Math.sin(eps)*Math.sin(sunLon));const y2=Math.tan(eps/2)**2,L0r=L0*Math.PI/180;const eqTime=(y2*Math.sin(2*L0r)-2*e*Math.sin(M)+4*e*y2*Math.sin(M)*Math.cos(2*L0r)-0.5*y2*y2*Math.sin(4*L0r)-1.25*e*e*Math.sin(2*M))*4*180/Math.PI;const cosHA=(Math.cos(90.833*Math.PI/180)-Math.sin(lat*Math.PI/180)*Math.sin(dec))/(Math.cos(lat*Math.PI/180)*Math.cos(dec));const HAdeg=Math.acos(cosHA)*180/Math.PI;const sunsetUTC=(720-4*lon-eqTime)/60+HAdeg*4/60;const dateObj=new Date(year,month-1,day);const lsm=new Date(year,2,31);lsm.setDate(31-lsm.getDay());const lso=new Date(year,9,31);lso.setDate(31-lso.getDay());const local=sunsetUTC+((dateObj>=lsm&&dateObj<lso)?3:2);return{h:Math.floor(local),m:Math.round((local-Math.floor(local))*60)};}
@@ -317,6 +317,31 @@ function getDisplaySessionsForDay(data,dateObj){
   return result;
 }
 
+// זיהוי אוטומטי: משמרת לילה שאחריה, במרווח קצר (פחות מ-6 שעות מנוחה), מתחילה משמרת נוספת —
+// בין אם באותו יום ובין אם ההמשך הוא ביום שאחרי הלילה
+function hasQuickShiftAfterNight(data,dateObj){
+  const REST_THRESHOLD=6*3600000;
+  const isNightLabel=(s)=>{const l=s.shiftLabel||classifySession(s.start,s.end);return l.includes("ל");};
+  const todaySessions=getDisplaySessionsForDay(data,dateObj).filter(s=>!s.live);
+  const prevDate=new Date(dateObj);prevDate.setDate(prevDate.getDate()-1);
+  const prevSessions=getDisplaySessionsForDay(data,prevDate).filter(s=>!s.live);
+  if(prevSessions.length&&todaySessions.length){
+    const lastYesterday=prevSessions[prevSessions.length-1];
+    const firstToday=todaySessions[0];
+    if(isNightLabel(lastYesterday)){
+      const gap=firstToday.start-lastYesterday.end;
+      if(gap>=0&&gap<REST_THRESHOLD)return true;
+    }
+  }
+  for(let i=0;i<todaySessions.length-1;i++){
+    if(isNightLabel(todaySessions[i])){
+      const gap=todaySessions[i+1].start-todaySessions[i].end;
+      if(gap>=0&&gap<REST_THRESHOLD)return true;
+    }
+  }
+  return false;
+}
+
 const SHIFT_LABELS={morning:"בוקר",afternoon:"צהריים",night:"לילה",bt:"בצ",tl:"צל",btl:"בצל"};
 function labelToSelection(label){
   if(label==="בוקר")return{morning:true,afternoon:false,night:false};
@@ -513,7 +538,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,dayType,onS
           <div>
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{DAY_NAMES[date.getDay()]} {date.getDate()} {MONTH_NAMES[date.getMonth()]}</div>
             <div style={{fontSize:12,color:T.textFaint,marginTop:2}}>{hebrewDate.full}</div>
-            {holidayInfo&&<div style={{fontSize:12,color:T.plum,marginTop:3,fontWeight:600}}>✦ {holidayInfo.label}</div>}
+            {holidayInfo&&<div style={{fontSize:12,color:holidayInfo.type==="fast"?T.gray:T.plum,marginTop:3,fontWeight:600}}>✦ {holidayInfo.label}</div>}
             {!holidayInfo&&specialShabbat&&<div style={{fontSize:12,color:T.plum,marginTop:3,fontWeight:600}}>✦ {specialShabbat}</div>}
             {parasha&&<div style={{fontSize:12,color:T.plum,marginTop:3,fontWeight:600}}>{formatParashaLabel(parasha,specialShabbat||"")} ✦</div>}
           </div>
@@ -938,7 +963,7 @@ export default function WorkHoursTracker(){
 
   const{year,month}=summaryMonth;
   const daysInMonth=getDaysInMonth(year,month);
-  const days=useMemo(()=>Array.from({length:daysInMonth},(_,i)=>{const d=new Date(year,month,i+1),key=getDayKey(d),entry=data[key];const earnings=entry?calcEarnings(entry.sessions,entry.active,hourlyRate,data,key):{regularMs:0,premiumMs:0,totalMs:0,regularEarnings:0,premiumEarnings:0,total:0};return{date:d,key,earnings,entry};}),[data,year,month,daysInMonth,hourlyRate,now]);
+  const days=useMemo(()=>Array.from({length:daysInMonth},(_,i)=>{const d=new Date(year,month,i+1),key=getDayKey(d),entry=data[key];const earnings=entry?calcEarnings(entry.sessions,key===todayKey?entry.active:null,hourlyRate,data,key):{regularMs:0,premiumMs:0,totalMs:0,regularEarnings:0,premiumEarnings:0,total:0};return{date:d,key,earnings,entry};}),[data,year,month,daysInMonth,hourlyRate,now,todayKey]);
   const monthTotals=useMemo(()=>days.reduce((a,d)=>({totalMs:a.totalMs+d.earnings.totalMs,premiumMs:a.premiumMs+d.earnings.premiumMs,total:a.total+d.earnings.total,regularEarnings:a.regularEarnings+d.earnings.regularEarnings,premiumEarnings:a.premiumEarnings+d.earnings.premiumEarnings}),{totalMs:0,premiumMs:0,total:0,regularEarnings:0,premiumEarnings:0}),[days]);
   const maxDayMs=Math.max(...days.map(d=>d.earnings.totalMs),1);
   const insights=useMemo(()=>{
@@ -950,7 +975,7 @@ export default function WorkHoursTracker(){
       const[y,m]=key.split("-").map(Number);
       const mk=`${y}-${m}`;
       const entry=data[key];
-      const earn=calcEarnings(entry.sessions,entry.active,hourlyRate,data,key);
+      const earn=calcEarnings(entry.sessions,key===todayKey?entry.active:null,hourlyRate,data,key);
       monthMsMap[mk]=(monthMsMap[mk]||0)+earn.totalMs;
     }
     let bestMonthKey=null,bestMonthMs=0;
@@ -958,7 +983,7 @@ export default function WorkHoursTracker(){
     let bestMonthLabel="";
     if(bestMonthKey){const[by,bm]=bestMonthKey.split("-").map(Number);bestMonthLabel=`${MONTH_NAMES[bm]} ${by}`;}
     return{bestDay,avgWeeklyMs,bestMonthLabel,bestMonthMs};
-  },[days,monthTotals,daysInMonth,data,hourlyRate]);
+  },[days,monthTotals,daysInMonth,data,hourlyRate,todayKey]);
   useEffect(()=>{const result={};const jobs=[];for(let i=1;i<=daysInMonth;i++){const d=new Date(year,month,i);if(d.getDay()!==6)continue;const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;jobs.push(fetchParasha(d).then(p=>{if(p)result[key]=p;}));}Promise.all(jobs).then(()=>setSummaryParashas(prev=>({...prev,...result})));},[year,month]);
 
   const secDeg=now.getSeconds()*6,minDeg=now.getMinutes()*6+now.getSeconds()*0.1,hourDeg=(now.getHours()%12)*30+now.getMinutes()*0.5;
@@ -1250,14 +1275,14 @@ export default function WorkHoursTracker(){
                     {earnings.totalMs>0&&<div style={{position:"absolute",right:0,top:0,bottom:0,width:`${pct*100}%`,background:hasPremium?`linear-gradient(90deg,transparent,${T.violet}20)`:`linear-gradient(90deg,transparent,${T.accent}18)`,pointerEvents:"none"}}/>}
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",position:"relative"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
-                        <div style={{width:34,height:34,borderRadius:9,background:isToday?T.accent:holidayInfo?T.violet+"33":T.surface2,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        <div style={{width:34,height:34,borderRadius:9,background:isToday?T.accent:holidayInfo?(holidayInfo.type==="fast"?T.grayLight:T.violet+"33"):T.surface2,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                           <span style={{fontSize:14,fontWeight:700,color:isToday?"#fff":isWeekend?T.textFaint:T.textSub}}>{date.getDate()}</span>
                         </div>
                         <div>
                           <div style={{fontSize:13,color:isWeekend?T.textFaint:T.textSub,fontWeight:500,display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                             {DAY_NAMES[date.getDay()]}
                             {isToday&&<span style={{color:T.accent,fontSize:10}}>היום</span>}
-                            {holidayInfo&&<span style={{color:T.violet,fontSize:10,fontWeight:700}}>✦ {holidayInfo.label}</span>}
+                            {holidayInfo&&<span style={{color:holidayInfo.type==="fast"?T.gray:T.violet,fontSize:10,fontWeight:700}}>✦ {holidayInfo.label}</span>}
                             {!holidayInfo&&hasPremium&&<span style={{color:T.violet,fontSize:10}}>✦</span>}
                           </div>
                           {hebrewDate.full&&<div style={{fontSize:10,color:T.textFaint,marginTop:1}}>{hebrewDate.full}</div>}
@@ -1349,13 +1374,15 @@ export default function WorkHoursTracker(){
               const notesCount=notes.length;
               const worked=sessions.length>0;
               const dType=dayTypes[key];
+              const quickAfterNight=worked&&hasQuickShiftAfterNight(data,date);
               return (
-                <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:dType?T.accentLight:holidayInfo?T.plumLight:T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
+                <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:dType?T.accentLight:holidayInfo?(holidayInfo.type==="fast"?T.grayLight:T.plumLight):T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
+                  {quickAfterNight&&<span style={{position:"absolute",top:3,right:3,fontSize:10}} title="משמרת נוספת בזמן קצר אחרי לילה">🔁</span>}
                   <div style={{display:"flex",alignItems:"baseline",gap:3}}>
                     <span style={{fontSize:12,fontWeight:700,color:isToday?T.accent:T.textSub}}>{date.getDate()}</span>
                     {hebrewDate.dayStr&&<span style={{fontSize:10,fontWeight:600,color:T.textMuted,lineHeight:1.1}}>{hebrewDate.dayStr}</span>}
                   </div>
-                  {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
+                  {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:holidayInfo?.type==="fast"?T.gray:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
                   {parasha&&<span style={{fontSize:10,color:T.plum,textAlign:"center",lineHeight:1.2,fontWeight:700,width:"100%"}}>{parasha}</span>}
                   <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
                     {dType&&<span style={{fontSize:16}}>{dType==="vacation"?"🏖️":"🤒"}</span>}
