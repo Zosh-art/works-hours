@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updateProfile } from "firebase/auth";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, collection, getDocs } from "firebase/firestore";
 
 const PREMIUM_RATE = 1.5;
 const WAGE_PRESETS = [
@@ -105,9 +105,11 @@ function buildHolidayWindows(){return JEWISH_HOLIDAYS_RAW.map(h=>{const[ey,em,ed
 const HOLIDAY_WINDOWS=buildHolidayWindows();
 function buildHolidayEveSunsets(){return JEWISH_HOLIDAYS_RAW.map(h=>{const[ey,em,ed]=h.eve,s=getSunsetIL(ey,em,ed);return new Date(ey,em-1,ed,s.h,s.m,0,0).getTime();});}
 const HOLIDAY_EVE_SUNSETS=buildHolidayEveSunsets();
-function getShabbatWindow(dateTs){const fd=new Date(dateTs);fd.setHours(0,0,0,0);while(fd.getDay()!==5)fd.setDate(fd.getDate()+(fd.getDay()<5?5-fd.getDay():7-(fd.getDay()-5)));const s=getSunsetIL(fd.getFullYear(),fd.getMonth()+1,fd.getDate());const start=new Date(fd);start.setHours(s.h,s.m,0,0);const end=new Date(fd);end.setDate(fd.getDate()+2);end.setHours(6,0,0,0);return{start:start.getTime(),end:end.getTime()};}
-function isInPremiumWindow(ts){const sw=getShabbatWindow(ts);if(ts>=sw.start&&ts<sw.end)return true;for(const hw of HOLIDAY_WINDOWS)if(ts>=hw.start&&ts<hw.end)return true;return false;}
-function getNextPremiumStart(startTs,endTs){const c=[];const sw=getShabbatWindow(startTs);if(sw.start>startTs&&sw.start<endTs)c.push(sw.start);for(const hw of HOLIDAY_WINDOWS)if(hw.start>startTs&&hw.start<endTs)c.push(hw.start);for(const es of HOLIDAY_EVE_SUNSETS)if(es>startTs&&es<endTs)c.push(es);return c.length?Math.min(...c):null;}
+function getPrecedingFriday(dateTs){const fd=new Date(dateTs);fd.setHours(0,0,0,0);const day=fd.getDay();const daysBack=(day-5+7)%7;fd.setDate(fd.getDate()-daysBack);return fd;}
+function getUpcomingFriday(dateTs){const fd=new Date(dateTs);fd.setHours(0,0,0,0);const day=fd.getDay();const daysForward=(5-day+7)%7;fd.setDate(fd.getDate()+daysForward);return fd;}
+function getShabbatWindowFor(fridayDate){const s=getSunsetIL(fridayDate.getFullYear(),fridayDate.getMonth()+1,fridayDate.getDate());const start=new Date(fridayDate);start.setHours(s.h,s.m,0,0);const end=new Date(fridayDate);end.setDate(fridayDate.getDate()+2);end.setHours(6,0,0,0);return{start:start.getTime(),end:end.getTime()};}
+function isInPremiumWindow(ts){const sw=getShabbatWindowFor(getPrecedingFriday(ts));if(ts>=sw.start&&ts<sw.end)return true;for(const hw of HOLIDAY_WINDOWS)if(ts>=hw.start&&ts<hw.end)return true;return false;}
+function getNextPremiumStart(startTs,endTs){const c=[];const sw=getShabbatWindowFor(getUpcomingFriday(startTs));if(sw.start>startTs&&sw.start<endTs)c.push(sw.start);for(const hw of HOLIDAY_WINDOWS)if(hw.start>startTs&&hw.start<endTs)c.push(hw.start);for(const es of HOLIDAY_EVE_SUNSETS)if(es>startTs&&es<endTs)c.push(es);return c.length?Math.min(...c):null;}
 function splitSession(startTs,endTs){const totalMs=endTs-startTs;if(isInPremiumWindow(startTs))return{regularMs:0,premiumMs:totalMs};const ps=getNextPremiumStart(startTs,endTs);if(ps!==null)return{regularMs:ps-startTs,premiumMs:endTs-ps};return{regularMs:totalMs,premiumMs:0};}
 function getHolidayName(ts){for(const hw of HOLIDAY_WINDOWS)if(ts>=hw.start&&ts<hw.end)return hw.name;return null;}
 
@@ -400,6 +402,56 @@ function RecoverOldDataModal({isPlain,onRecover,onDismiss,T}){
   );
 }
 
+function RestoreBackupModal({onLoadBackups,onRestore,onClose,T}){
+  const[backups,setBackups]=useState(null); // null=טרם נטען
+  const[confirmId,setConfirmId]=useState(null);
+  const[restoring,setRestoring]=useState(false);
+  useEffect(()=>{onLoadBackups().then(setBackups);},[]);
+  async function handleConfirmRestore(b){
+    setRestoring(true);
+    await onRestore(b);
+    setRestoring(false);
+    onClose();
+  }
+  return(
+    <div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+      <div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:380,maxHeight:"80vh",overflowY:"auto",border:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <span style={{fontWeight:700,fontSize:17,color:T.text}}>שחזור מגיבוי יומי</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={{fontSize:12,color:T.textMuted,marginBottom:14,lineHeight:1.6}}>כל שורה היא תמונת מצב מלאה מסוף אותו יום. שחזור <b>מחליף</b> את כל המידע הנוכחי בגרסה מהתאריך שתבחר — כדאי לוודא לפני שמשחזרים.</div>
+        {backups===null&&<div style={{textAlign:"center",color:T.textFaint,fontSize:13,padding:"20px 0"}}>טוען רשימת גיבויים...</div>}
+        {backups&&backups.length===0&&<div style={{textAlign:"center",color:T.textFaint,fontSize:13,padding:"20px 0"}}>אין עדיין גיבויים שמורים (הם נוצרים אוטומטית כל יום שיש בו שינוי).</div>}
+        {backups&&backups.map(b=>{
+          const dayCount=Object.keys(b.data||{}).length;
+          const isConfirming=confirmId===b.id;
+          return(
+            <div key={b.id} style={{background:T.surface2,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>{b.id}</div>
+                  <div style={{fontSize:11,color:T.textFaint,marginTop:1}}>{dayCount} ימים שמורים · נשמר {new Date(b.savedAt).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
+                </div>
+                <button onClick={()=>setConfirmId(isConfirming?null:b.id)} style={{background:"none",border:`1px solid ${T.accent}`,borderRadius:8,padding:"5px 12px",color:T.accent,cursor:"pointer",fontSize:12,fontWeight:600}}>שחזר</button>
+              </div>
+              {isConfirming&&(
+                <div style={{marginTop:8,background:T.accentLight,borderRadius:8,padding:"8px 10px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{fontSize:12,color:T.text}}>להחליף את כל המידע הנוכחי בגרסה הזו?</span>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setConfirmId(null)} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,fontWeight:600}}>ביטול</button>
+                    <button onClick={()=>handleConfirmRestore(b)} disabled={restoring} style={{background:T.accent,border:"none",borderRadius:6,padding:"4px 10px",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>{restoring?"משחזר...":"אשר שחזור"}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function WageModal({currentRate,onSave,onClose,T}){const preset=WAGE_PRESETS.find(p=>p.value===currentRate);const[selected,setSelected]=useState(preset?preset.value:null);const[customVal,setCustomVal]=useState(preset?"":String(currentRate));function handleSave(){const rate=selected!==null?selected:parseFloat(customVal.replace(",","."));if(!rate||isNaN(rate)||rate<=0)return;onSave(rate);}
 return (<div style={{position:"fixed",inset:0,background:T.modalOverlay,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}><div style={{background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:360,border:`1px solid ${T.border}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><span style={{fontWeight:700,fontSize:17,color:T.text}}>תעריף שעתי</span><button onClick={onClose} style={{background:"none",border:"none",color:T.textFaint,fontSize:22,cursor:"pointer"}}>✕</button></div><div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>{WAGE_PRESETS.map(p=>(<button key={p.label} onClick={()=>{setSelected(p.value);if(p.value)setCustomVal("");}} style={{padding:"14px 18px",borderRadius:12,border:"none",cursor:"pointer",textAlign:"right",background:(p.value!==null?selected===p.value:selected===null)?T.accent:T.surface2,color:(p.value!==null?selected===p.value:selected===null)?"#fff":T.textSub,fontWeight:700,fontSize:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{p.value?`₪${p.label}`:p.label}</span>{(p.value!==null?selected===p.value:selected===null)&&<span>✓</span>}</button>))}</div>{selected===null&&<div style={{marginBottom:16}}><div style={{fontSize:12,color:T.textFaint,marginBottom:6}}>הזן תעריף ידנית</div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.gold,fontWeight:700,fontSize:18}}>₪</span><input type="number" step="0.01" min="0" value={customVal} onChange={e=>setCustomVal(e.target.value)} placeholder="0.00" autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px",color:T.text,fontSize:18,outline:"none"}}/></div></div>}<div style={{display:"flex",gap:10}}><button onClick={onClose} style={{flex:1,padding:"12px",background:T.surface2,border:"none",borderRadius:12,color:T.textSub,cursor:"pointer",fontWeight:600,fontSize:15}}>ביטול</button><button onClick={handleSave} style={{flex:2,padding:"12px",background:T.accent,border:"none",borderRadius:12,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}}>שמור</button></div></div></div>);}
 
@@ -651,6 +703,7 @@ export default function WorkHoursTracker(){
   const[isOffline,setIsOffline]=useState(typeof navigator!=="undefined"?!navigator.onLine:false);
   const skipNextSaveRef=useRef(false);
   const maxSeenDayCountRef=useRef(0);
+  const allowShrinkRef=useRef(false);
   const[dataProtectionWarning,setDataProtectionWarning]=useState("");
   const T=THEMES.light;
 
@@ -737,7 +790,11 @@ export default function WorkHoursTracker(){
     const currentDayCount=Object.keys(data).length;
     // "מגן קריסה": אם המידע שעומד להישמר מכיל פתאום הרבה פחות ימים ממה שכבר ראינו בוודאות מהשרת —
     // זה בדיוק התבנית שגרמה לאובדן המידע בעבר. עוצרים את השמירה במקום לדרוס בשקט.
-    if(maxSeenDayCountRef.current>0&&currentDayCount<maxSeenDayCountRef.current-1){
+    // חריג: שחזור מגיבוי מכוון (allowShrinkRef) מדלג על הבדיקה הזו פעם אחת בכוונה.
+    if(allowShrinkRef.current){
+      allowShrinkRef.current=false;
+      maxSeenDayCountRef.current=currentDayCount;
+    }else if(maxSeenDayCountRef.current>0&&currentDayCount<maxSeenDayCountRef.current-1){
       setDataProtectionWarning(`זוהתה ירידה חריגה בכמות הימים השמורים (מ-${maxSeenDayCountRef.current} ל-${currentDayCount}) — השמירה האוטומטית הושהתה כדי להגן על המידע שלך. אל תמשיך להשתמש באפליקציה, ופנה לתמיכה (כפתור הוואטסאפ למעלה) לפני שממשיכים.`);
       return; // לא שומרים — עוצרים את הדריסה האפשרית
     }
@@ -951,6 +1008,21 @@ export default function WorkHoursTracker(){
     },"image/png");
   }
 
+  const[showRestoreBackup,setShowRestoreBackup]=useState(false);
+  async function handleLoadBackups(){
+    try{
+      const snap=await getDocs(collection(db,"users",user.uid,"backups"));
+      return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+    }catch{return[];}
+  }
+  function handleRestoreBackup(b){
+    allowShrinkRef.current=true;
+    setData(b.data||{});
+    setHourlyRate(b.hourlyRate||52.19);
+    setJournalNotes(b.journalNotes||{});
+    setDayTypes(b.dayTypes||{});
+  }
+
   const{year:jYear,month:jMonth}=journalMonth;
   const jDaysInMonth=getDaysInMonth(jYear,jMonth);
   const jLeadingBlanks=new Date(jYear,jMonth,1).getDay();
@@ -976,6 +1048,7 @@ export default function WorkHoursTracker(){
       {showRecover&&<RecoverOldDataModal isPlain={showRecoverPlain} onRecover={handleRecoverOldData} onDismiss={handleDismissRecover} T={T}/>}
       {manualEntry&&<ManualEntryModal targetDate={manualEntry.date} existingSessions={data[getDayKey(manualEntry.date)]?.sessions} onSave={sessions=>handleManualSave(manualEntry.date,sessions)} onClose={()=>setManualEntry(null)} hourlyRate={hourlyRate} T={T}/>}
       {showWage&&<WageModal currentRate={hourlyRate} onSave={rate=>{setHourlyRate(rate);setShowWage(false);}} onClose={()=>setShowWage(false)} T={T}/>}
+      {showRestoreBackup&&<RestoreBackupModal onLoadBackups={handleLoadBackups} onRestore={handleRestoreBackup} onClose={()=>setShowRestoreBackup(false)} T={T}/>}
       {journalDay&&(()=>{const jk=getDayKey(journalDay);const isSat=journalDay.getDay()===6;const jkFull=`${journalDay.getFullYear()}-${String(journalDay.getMonth()+1).padStart(2,"0")}-${String(journalDay.getDate()).padStart(2,"0")}`;const jParasha=isSat?journalParashas[jkFull]:"";const specialShabbat=isSat?getSpecialShabbat(journalDay,jParasha):"";return (<JournalDayModal date={journalDay} sessions={getDisplaySessionsForDay(data,journalDay)} notes={journalNotes[jk]} parasha={jParasha} specialShabbat={specialShabbat} dayType={dayTypes[jk]||null} onSetDayType={type=>handleSetDayType(jk,type)} onAddNote={text=>handleAddNote(jk,text)} onDeleteNote={id=>handleDeleteNote(jk,id)} onSetShiftOverride={(start,label)=>handleSetShiftOverride(jk,start,label)} onMergeSessions={starts=>handleMergeSessions(jk,starts)} onDeleteSession={start=>handleDeleteSession(jk,start)} onClose={()=>setJournalDay(null)} T={T}/>);})()}
 
       <div style={{width:"100%",maxWidth:480,padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1152,107 +1225,4 @@ export default function WorkHoursTracker(){
                         const sp=splitSession(s.start,s.end);
                         const earn=(sp.regularMs/3600000)*hourlyRate+(sp.premiumMs/3600000)*hourlyRate*PREMIUM_RATE;
                         return (<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:12}}>
-                          <span style={{color:T.textSub}}>{new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {s.live?"עכשיו":new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}{sp.premiumMs>0&&<span style={{color:T.violet,marginRight:4}}> ✦ {formatTime(sp.premiumMs)}</span>}</span>
-                          <span style={{color:T.gold,fontWeight:600}}>{formatMoney(earn)}</span>
-                        </div>);
-                      })}
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,fontSize:12}}>
-                        <button onClick={()=>setManualEntry({date})} style={{background:"none",border:"none",color:T.accent,cursor:"pointer",fontSize:12,padding:0}}>✏️ עריכה</button>
-                        <span style={{color:T.gold,fontWeight:700}}>{formatMoney(earnings.total)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{height:16}}/>
-        </div>
-      )}
-
-      {view==="journal"&&(
-        <div style={{width:"100%",maxWidth:480,padding:"16px 20px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <button onClick={()=>setJournalMonth((p)=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><ChevronRight/></button>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:18,fontWeight:700,color:T.text}}>{MONTH_NAMES[jMonth]} {jYear}<span style={{fontSize:12,color:T.textFaint,fontWeight:400,marginRight:6}}>· {getHebrewMonthLabel(jYear,jMonth)}</span></div>
-              {(jYear!==new Date().getFullYear()||jMonth!==new Date().getMonth())&&(<button onClick={()=>{const d=new Date();setJournalMonth({year:d.getFullYear(),month:d.getMonth()});}} style={{marginTop:4,background:T.accent,border:"none",borderRadius:12,padding:"2px 12px",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>היום ↩</button>)}
-            </div>
-            <button onClick={()=>setJournalMonth((p)=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})} style={{background:T.surface,border:`1px solid ${T.border}`,color:T.textSub,borderRadius:10,width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><ChevronLeft/></button>
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:6}}>
-            {DAY_NAMES.map(n=>(<div key={n} style={{textAlign:"center",fontSize:10,color:T.textFaint,fontWeight:600}}>{n}</div>))}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
-            {Array.from({length:jLeadingBlanks}).map((_,i)=>(<div key={"b"+i}/>))}
-            {jDays.map(({date,key,sessions})=>{
-              const isToday=key===todayKey;
-              const holidayInfo=getDayHolidayInfo(date);
-              const dayKeyFull=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
-              const parasha=date.getDay()===6?(journalParashas[dayKeyFull]||null):null;
-              const specialShabbat=date.getDay()===6?getSpecialShabbat(date,parasha):"";
-              const hebrewDate=toHebrewDate(date);
-              const notes=journalNotes[key]||[];
-              const notesCount=notes.length;
-              const worked=sessions.length>0;
-              const dType=dayTypes[key];
-              return (
-                <div key={key} onClick={()=>setJournalDay(date)} style={{cursor:"pointer",borderRadius:8,padding:"4px 2px",minHeight:66,background:isToday?T.todayBg:dType?T.accentLight:holidayInfo?T.plumLight:T.surface,border:`1px solid ${isToday?T.todayBorder:T.border}`,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}}>
-                  <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-                    <span style={{fontSize:12,fontWeight:700,color:isToday?T.accent:T.textSub}}>{date.getDate()}</span>
-                    {hebrewDate.dayStr&&<span style={{fontSize:10,fontWeight:600,color:T.textMuted,lineHeight:1.1}}>{hebrewDate.dayStr}</span>}
-                  </div>
-                  {(holidayInfo||specialShabbat)&&<span style={{fontSize:7,color:T.plum,textAlign:"center",lineHeight:1.1}}>{holidayInfo?holidayInfo.label:specialShabbat}</span>}
-                  {parasha&&<span style={{fontSize:10,color:T.plum,textAlign:"center",lineHeight:1.2,fontWeight:700,width:"100%"}}>{parasha}</span>}
-                  <div style={{flex:1,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                    {dType&&<span style={{fontSize:16}}>{dType==="vacation"?"🏖️":"🤒"}</span>}
-                    {worked&&sessions.map((s,si)=>(<span key={si} style={{fontSize:10,color:T.sage,fontWeight:800,textAlign:"center",lineHeight:1.3}}>{s.shiftLabel||classifySession(s.start,s.end)}</span>))}
-                  </div>
-                  {notesCount>0&&<div style={{width:"100%",background:T.accentLight,borderRadius:5,padding:"1px 4px",marginTop:2}}><div style={{fontSize:7,color:T.accent,fontWeight:600,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {notes[0].text}{notesCount>1?` +${notesCount-1}`:""}</div></div>}
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{marginTop:16,fontSize:11,color:T.textFaint,textAlign:"center",lineHeight:1.6}}>היומן מתמלא אוטומטית לפי המשמרות שנרשמו בטאב "סיכום" (כניסה/יציאה או הזנה ידנית) — אין צורך להזין כאן שוב. לחיצה על יום מציגה את המשמרות והערות, ומאפשרת להוסיף הערה ידנית או לערוך את הסיווג</div>
-          <div style={{height:16}}/>
-        </div>
-      )}
-
-      {view==="help"&&(
-        <div style={{width:"100%",maxWidth:480,padding:"16px 20px"}}>
-          <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:16,textAlign:"center"}}>איך האפליקציה עובדת</div>
-
-          {[
-            {title:"🏠 ראשי",body:"השעון הגדול באמצע — לחיצה על הכפתור העגול מתחילה משמרת (\"כניסה\"), ולחיצה נוספת מסיימת אותה (\"יציאה\"). למעלה מוצגות שעות היום והחודש עד כה, וכשמחוברים רואים פס עדין שממלא את עצמו לפי כמה מהיום כבר עבר. הרקע משתנה בעדינות לאורך היום (ולפי מזג האוויר), ועובר למראה כהה קבוע עם זהב בזמן שבת/חג — שם מסתמנות שעות שמזכות בתוספת ×1.5."},
-            {title:"📊 סיכום",body:"תצוגה חודשית של כל יום — שעות, שכר רגיל, ותוספת ×1.5 לשעות שבת/חג. לחיצה על יום מרחיבה אותו ומראה את המשמרות המדויקות של אותו יום, עם אפשרות לערוך אותן או להזין שעות ידנית ליום שבו שכחת להפעיל את השעון."},
-            {title:"₪ שכר",body:"קובע את התעריף השעתי שלפיו מחושב השכר. אפשר לבחור מתעריפים מוכנים או להזין תעריף מותאם אישית."},
-            {title:"📅 יומן",body:"לוח חודשי שמתמלא אוטומטית לפי המשמרות שנרשמו בטאב \"סיכום\" (אין צורך להזין כאן שוב) — עם התאריך העברי, פרשת השבוע (רק בשבתות), וחגים. לחיצה על יום פותחת חלון שבו אפשר: להוסיף הערה, לערוך את סיווג המשמרת ידנית, לאחד (🔗) כמה משמרות נפרדות לאחת, למחוק (🗑️) משמרת שגויה, או לסמן חופשה/מחלה."},
-            {title:"📊 ייצוא ושיתוף",body:"בטאב \"סיכום\" יש שלושה כפתורים: ייצוא ל-CSV (נפתח באקסל), הדפסה/PDF (דוח מסודר להדפסה או שמירה כ-PDF), ושיתוף (תמונה יפה עם סיכום החודש, לשליחה בוואטסאפ)."},
-            {title:"💡 תובנות",body:"בטאב \"סיכום\" מוצג ממוצע שעות שבועי לחודש הנוכחי, היום העמוס ביותר בחודש, והחודש הכי רווחי אי פעם."},
-            {title:"⏰ תזכורת יציאה",body:"אם נשארת מחובר/ת ברציפות מעל 10 שעות, תופיע תזכורת עדינה בדף הראשי שמא שכחת לצאת."},
-            {title:"🌙 איך משמרת מסווגת",body:"המשמרת מסווגת לפי כמה שעות היא חופפת עם כל פרק ביום: בוקר (05:00–14:00), צהריים (14:00–20:00), לילה (20:00–05:00). אם היא חופפת משמעותית (יותר משעתיים) עם שני פרקים, היא מקבלת שם משולב: בצ (בוקר+צהריים), צל (צהריים+לילה), בצל (כל השלושה)."},
-            {title:"✏️ עריכת סיווג ידנית",body:"בעריכת משמרת ביומן יש שלוש רובריקות: בוקר, צהריים, לילה. אפשר לסמן כמה שרוצים, והמערכת מרכיבה את השם המשולב הנכון לבד (למשל בוקר+צהריים = \"בצ\")."},
-            {title:"🆘 תמיכה",body:"כפתור \"תמיכה\" בסרגל העליון פותח שיחת וואטסאפ עם הודעה מוכנה מראש — לכל תקלה, שאלה או רעיון."},
-            {title:"🚪 יציאה",body:"כפתור \"יציאה\" בסרגל העליון מתנתק מהחשבון שלך (לא מוחק כלום!). כדי לחזור, פשוט מתחברים שוב עם אותו אימייל וסיסמה — ואם שכחת אותה, יש קישור \"שכחת סיסמה?\" במסך ההתחברות."},
-            {title:"📡 מצב אופליין",body:"האפליקציה עובדת גם בלי אינטרנט: אפשר להיכנס/לצאת, להוסיף הערות ולערוך משמרות, ופס אפור למעלה יזכיר לך שאתה אופליין. ברגע שהחיבור חוזר, הכל מסתנכרן אוטומטית לענן. חשוב: כדי שהמידע כבר יהיה שמור מקומית, כדאי לפתוח את האפליקציה פעם אחת עם אינטרנט אחרי כל התקנה חדשה של הדפדפן."},
-          ].map((s,i)=>(
-            <div key={i} style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:"14px 16px",marginBottom:10}}>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>{s.title}</div>
-              <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,whiteSpace:"pre-line"}}>{s.body}</div>
-            </div>
-          ))}
-
-          <div style={{background:T.surface2,borderRadius:14,padding:"14px 16px",marginTop:6}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>💾 איפה המידע שלי נשמר?</div>
-            <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>המידע שלך מסונכרן אוטומטית לחשבון האישי שלך בענן — אפשר להתחבר מכל מכשיר עם אותו אימייל וסיסמה ולראות את אותו מידע, מתעדכן בזמן אמת.</div>
-          </div>
-          <div style={{height:16}}/>
-        </div>
-      )}
-
-      <BottomNav view={view} setView={setView} onWage={()=>setShowWage(true)} hourlyRate={hourlyRate} T={T}/>
-    </div>
-  );
-}
+                          <span style={{color:T.textSub}}>{new Date(s.start).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})} ← {s.live?"עכשיו":new Date(s.end).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}{sp.premiumMs>0&&<span style={{color:T.viole
