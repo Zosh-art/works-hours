@@ -1072,6 +1072,27 @@ export default function WorkHoursTracker(){
   }
 
   const[showRestoreBackup,setShowRestoreBackup]=useState(false);
+  const[monthDebugResult,setMonthDebugResult]=useState("");
+  function handleDebugBestMonth(){
+    if(!insights.bestMonthLabel){setMonthDebugResult("אין עדיין 'חודש הכי רווחי' לבדוק.");return;}
+    const targetKey=Object.keys(data).find(k=>{
+      const[y,m]=k.split("-").map(Number);
+      return`${MONTH_NAMES[m]} ${y}`===insights.bestMonthLabel;
+    });
+    if(!targetKey){setMonthDebugResult("לא נמצא.");return;}
+    const[targetY,targetM]=targetKey.split("-").map(Number);
+    const rows=[];
+    for(const key of Object.keys(data)){
+      const parts=key.split("-");
+      const y=Number(parts[0]),m=Number(parts[1]),d=Number(parts[2]);
+      if(y!==targetY||m!==targetM)continue;
+      const entry=data[key];
+      const earn=calcEarnings(entry.sessions,key===todayKey?entry.active:null,hourlyRate,data,key);
+      rows.push(`${key} (יום ${d}): ${(earn.totalMs/3600000).toFixed(2)}ש, ${entry.sessions?.length||0} משמרות, active=${entry.active?"כן!":"לא"}`);
+    }
+    setMonthDebugResult(`נמצאו ${rows.length} רשומות עבור ${insights.bestMonthLabel}:\n\n`+rows.join("\n"));
+  }
+
   async function handleLoadBackups(){
     try{
       const snap=await getDocs(collection(db,"users",user.uid,"backups"));
@@ -1432,6 +1453,13 @@ export default function WorkHoursTracker(){
             <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🛟 שחזור מגיבוי</div>
             <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>בכל יום נשמרת אוטומטית תמונת מצב מלאה של המידע שלך. אם משהו השתבש, אפשר לראות את כל הגיבויים הזמינים ולשחזר לגרסה מתאריך מסוים.</div>
             <button onClick={()=>setShowRestoreBackup(true)} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>הצג גיבויים זמינים</button>
+          </div>
+
+          <div style={{background:T.accentLight,border:`1px solid ${T.accent}`,borderRadius:14,padding:"14px 16px",marginTop:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🔍 בדיקת "חודש הכי רווחי" (זמני)</div>
+            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>מציג את כל הרשומות הגולמיות שנספרות לחודש שמוצג כ"הכי רווחי", כדי לאתר רשומה חריגה.</div>
+            <button onClick={handleDebugBestMonth} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:monthDebugResult?8:0}}>בדוק</button>
+            {monthDebugResult&&<div style={{fontSize:11,color:T.text,lineHeight:1.7,background:T.surface,borderRadius:8,padding:"10px 12px",whiteSpace:"pre-wrap",fontFamily:"monospace",direction:"ltr",textAlign:"right"}}>{monthDebugResult}</div>}
           </div>
           <div style={{height:16}}/>
         </div>
