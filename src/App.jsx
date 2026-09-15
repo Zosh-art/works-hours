@@ -1072,25 +1072,37 @@ export default function WorkHoursTracker(){
   }
 
   const[showRestoreBackup,setShowRestoreBackup]=useState(false);
-  const[monthDebugResult,setMonthDebugResult]=useState("");
-  function handleDebugBestMonth(){
-    if(!insights.bestMonthLabel){setMonthDebugResult("אין עדיין 'חודש הכי רווחי' לבדוק.");return;}
-    const targetKey=Object.keys(data).find(k=>{
-      const[y,m]=k.split("-").map(Number);
-      return`${MONTH_NAMES[m]} ${y}`===insights.bestMonthLabel;
-    });
-    if(!targetKey){setMonthDebugResult("לא נמצא.");return;}
-    const[targetY,targetM]=targetKey.split("-").map(Number);
-    const rows=[];
+  const[dupKeyIssues,setDupKeyIssues]=useState(null);
+  function handleFindDuplicateKeys(){
+    const issues=[];
     for(const key of Object.keys(data)){
       const parts=key.split("-");
-      const y=Number(parts[0]),m=Number(parts[1]),d=Number(parts[2]);
-      if(y!==targetY||m!==targetM)continue;
-      const entry=data[key];
-      const earn=calcEarnings(entry.sessions,key===todayKey?entry.active:null,hourlyRate,data,key);
-      rows.push(`${key} (יום ${d}): ${(earn.totalMs/3600000).toFixed(2)}ש, ${entry.sessions?.length||0} משמרות, active=${entry.active?"כן!":"לא"}`);
+      if(parts.length!==3)continue;
+      const[y,m,d]=parts;
+      const canonicalKey=`${y}-${m}-${Number(d)}`;
+      if(canonicalKey===key)continue;
+      const malformedHours=(calcEarnings(data[key].sessions,null,hourlyRate).totalMs/3600000).toFixed(2);
+      const hasCanonical=data[canonicalKey]!==undefined;
+      const canonicalHours=hasCanonical?(calcEarnings(data[canonicalKey].sessions,null,hourlyRate).totalMs/3600000).toFixed(2):null;
+      issues.push({malformedKey:key,canonicalKey,malformedHours,canonicalHours,hasCanonical});
     }
-    setMonthDebugResult(`נמצאו ${rows.length} רשומות עבור ${insights.bestMonthLabel}:\n\n`+rows.join("\n"));
+    setDupKeyIssues(issues);
+  }
+  function handleMergeDuplicateKeys(){
+    if(!dupKeyIssues||!dupKeyIssues.length)return;
+    setData(prev=>{
+      const next={...prev};
+      for(const issue of dupKeyIssues){
+        const malformed=next[issue.malformedKey];
+        if(!malformed)continue;
+        const canonical=next[issue.canonicalKey]||{sessions:[],active:null};
+        const mergedSessions=[...(canonical.sessions||[]),...(malformed.sessions||[])].sort((a,b)=>a.start-b.start);
+        next[issue.canonicalKey]={...canonical,sessions:mergedSessions,active:canonical.active||malformed.active||null};
+        delete next[issue.malformedKey];
+      }
+      return next;
+    });
+    setDupKeyIssues(null);
   }
 
   async function handleLoadBackups(){
@@ -1456,10 +1468,21 @@ export default function WorkHoursTracker(){
           </div>
 
           <div style={{background:T.accentLight,border:`1px solid ${T.accent}`,borderRadius:14,padding:"14px 16px",marginTop:10}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🔍 בדיקת "חודש הכי רווחי" (זמני)</div>
-            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>מציג את כל הרשומות הגולמיות שנספרות לחודש שמוצג כ"הכי רווחי", כדי לאתר רשומה חריגה.</div>
-            <button onClick={handleDebugBestMonth} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:monthDebugResult?8:0}}>בדוק</button>
-            {monthDebugResult&&<div style={{fontSize:11,color:T.text,lineHeight:1.7,background:T.surface,borderRadius:8,padding:"10px 12px",whiteSpace:"pre-wrap",fontFamily:"monospace",direction:"ltr",textAlign:"right"}}>{monthDebugResult}</div>}
+            <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:5}}>🔧 תיקון רשומות כפולות (חד-פעמי)</div>
+            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,marginBottom:10}}>מאתר ימים שנשמרו בטעות פעמיים תחת שני פורמטים שונים (מגרסה ישנה של האפליקציה), ומאחד אותם למשמרת אחת נכונה — בלי למחוק שום שעות.</div>
+            <button onClick={handleFindDuplicateKeys} style={{width:"100%",padding:"11px",background:T.accent,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:dupKeyIssues?8:0}}>בדוק אם יש רשומות כפולות</button>
+            {dupKeyIssues&&dupKeyIssues.length===0&&<div style={{fontSize:13,color:T.green,fontWeight:600}}>לא נמצאו רשומות כפולות — הכל תקין.</div>}
+            {dupKeyIssues&&dupKeyIssues.length>0&&(
+              <div>
+                <div style={{fontSize:13,color:T.text,fontWeight:700,marginBottom:8}}>נמצאו {dupKeyIssues.length} ימים כפולים:</div>
+                {dupKeyIssues.map((issue,i)=>(
+                  <div key={i} style={{fontSize:12,color:T.textSub,background:T.surface,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                    {issue.hasCanonical?`${issue.canonicalKey}: ${issue.canonicalHours}ש + ${issue.malformedHours}ש (כפולה) → יאוחדו יחד`:`${issue.canonicalKey}: ${issue.malformedHours}ש (הייתה חבויה לגמרי) → תשוחזר`}
+                  </div>
+                ))}
+                <button onClick={handleMergeDuplicateKeys} style={{width:"100%",padding:"11px",background:T.green,border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13,marginTop:6}}>אחד את הכל עכשיו</button>
+              </div>
+            )}
           </div>
           <div style={{height:16}}/>
         </div>
