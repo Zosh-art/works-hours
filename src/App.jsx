@@ -1090,6 +1090,7 @@ export default function WorkHoursTracker(){
   }
   function handleMergeDuplicateKeys(){
     if(!dupKeyIssues||!dupKeyIssues.length)return;
+    allowShrinkRef.current=true; // איחוד מכוון של מפתחות כפולים מקטין את מספר המפתחות בכוונה — לא איבוד מידע
     setData(prev=>{
       const next={...prev};
       for(const issue of dupKeyIssues){
