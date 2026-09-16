@@ -527,6 +527,11 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,dayType,onS
     const label=s?(s.shiftLabel||classifySession(s.start,s.end)):"";
     return labelToSelection(label);
   });
+  const[customLabelText,setCustomLabelText]=useState(()=>{
+    if(!initialEditStart)return"";
+    const s=sessions.find(x=>x.start===initialEditStart);
+    return s?(s.shiftLabel||classifySession(s.start,s.end)):"";
+  });
   const[confirmDeleteStart,setConfirmDeleteStart]=useState(null);
   const[mergeMode,setMergeMode]=useState(false);
   const[selected,setSelected]=useState([]);
@@ -587,7 +592,7 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,dayType,onS
                     </div>
                     {!mergeMode&&(<div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{color:T.accent,fontWeight:600}}>{label}</span>
-                      {!s.live&&<button onClick={()=>{const next=isEditing?null:s.start;setEditingStart(next);if(next)setEditSelection(labelToSelection(label));}} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,padding:0}}>✏️</button>}
+                      {!s.live&&<button onClick={()=>{const next=isEditing?null:s.start;setEditingStart(next);if(next){setEditSelection(labelToSelection(label));setCustomLabelText(label);}}} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:12,padding:0}}>✏️</button>}
                       {!s.live&&<button onClick={()=>setConfirmDeleteStart(confirmDeleteStart===s.start?null:s.start)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:12,padding:0}}>🗑️</button>}
                     </div>)}
                   </div>
@@ -616,7 +621,14 @@ function JournalDayModal({date,sessions,notes,parasha,specialShabbat,dayType,onS
                           );
                         })}
                       </div>
-                      <button onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,null);setEditingStart(null);}} style={{padding:"5px 10px",borderRadius:8,border:`1px dashed ${T.border}`,cursor:"pointer",fontSize:12,color:T.textFaint,background:"none"}}>אוטומטי</button>
+                      <button onClick={(e)=>{e.stopPropagation();onSetShiftOverride(s.start,null);setEditingStart(null);setCustomLabelText("");}} style={{padding:"5px 10px",borderRadius:8,border:`1px dashed ${T.border}`,cursor:"pointer",fontSize:12,color:T.textFaint,background:"none"}}>אוטומטי</button>
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+                        <div style={{fontSize:11,color:T.textFaint,marginBottom:6}}>או כתוב שם משלך (למשל "פגישה")</div>
+                        <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                          <input type="text" value={customLabelText} onChange={e=>setCustomLabelText(e.target.value)} placeholder="שם מותאם אישית" onKeyDown={e=>e.key==="Enter"&&customLabelText.trim()&&onSetShiftOverride(s.start,customLabelText.trim())} style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 10px",color:T.text,fontSize:13,outline:"none"}}/>
+                          <button onClick={()=>customLabelText.trim()&&onSetShiftOverride(s.start,customLabelText.trim())} style={{background:T.accent,border:"none",borderRadius:8,padding:"0 14px",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13}}>שמור</button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
